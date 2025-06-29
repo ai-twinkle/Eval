@@ -13,6 +13,7 @@ model:
   max_tokens: 4096          # 最大輸出 token 數
   frequency_penalty: 0.0    # 頻率懲罰
   presence_penalty: 0.0     # 存在懲罰
+  extra_body:
 
 evaluation:
   dataset_paths:            # 資料集路徑
@@ -37,6 +38,22 @@ evaluation:
     "datasets/mmlu/": "en"  # 指定資料集使用英文提示詞
   repeat_runs: 5           # 單一 datasets 重複執行次數
   shuffle_options: true    # 是否對選項進行隨機排序
+
+environment:
+  gpu_info:
+    model: "NVIDIA GeForce RTX 4090"           # GPU 型號
+    count: 1                                   # GPU 數量
+    memory_gb: 24                              # 單卡記憶體大小 (GB)
+    cuda_version: "12.1"                       # CUDA 版本
+    driver_version: "535.104.05"               # 驅動程式版本
+  parallel_config:
+    tp_size: 1                                 # Tensor Parallel 大小
+    pp_size: 1                                 # Pipeline Parallel 大小
+  system_info:
+    framework: "vLLM"                          # 使用的深度學習框架
+    python_version: "3.10.12"                 # Python 版本
+    torch_version: "2.1.0"                    # PyTorch 版本
+    node_count: 1                              # 節點數量
 
 logging:
   level: "INFO"   # 日誌等級（可選 DEBUG, INFO, WARNING, ERROR）

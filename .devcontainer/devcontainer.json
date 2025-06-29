@@ -1,0 +1,37 @@
+{
+    "name": "twinkle-eval",
+    "workspaceFolder": "/workspaces",
+    "build": {
+        "context": "../",
+        "dockerfile": "Dockerfile",
+    },
+    "customizations": {
+        "vscode": {
+            "extensions": [
+                "ms-python.black-formatter",
+                "ms-python.isort",
+                "kevinrose.vsc-python-indent",
+                "aaron-bond.better-comments",
+                "streetsidesoftware.code-spell-checker",
+                "ms-python.python"
+            ],
+            "settings": {
+                "[python]": {
+                    "editor.defaultFormatter": "ms-python.black-formatter",
+                    "editor.formatOnSave": true,
+                    "editor.codeActionsOnSave": {
+                        "source.organizeImports": true
+                    }
+                },
+                "files.exclude": {
+                    "**/__pycache__": true,
+                    "**/.pyc": true
+                }
+            }
+        }
+    },
+    "forwardPorts": [
+        8000
+    ],
+    "remoteUser": "apmic"
+}

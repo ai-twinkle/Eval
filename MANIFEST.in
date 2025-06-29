@@ -1,0 +1,37 @@
+# 包含額外的專案檔案
+include README.md
+include LICENSE
+include requirements.txt
+include *.yaml
+include *.yml
+include *.toml
+include *.cfg
+include *.ini
+
+# 包含文件目錄
+recursive-include docs *
+recursive-include examples *
+recursive-include assets *
+
+# 排除不需要的檔案
+exclude .gitignore
+exclude .pre-commit-config.yaml
+recursive-exclude * __pycache__
+recursive-exclude * *.py[co]
+recursive-exclude * *.so
+recursive-exclude * .DS_Store
+recursive-exclude * .pytest_cache
+recursive-exclude * .mypy_cache
+recursive-exclude * .coverage
+recursive-exclude * htmlcov
+recursive-exclude * .tox
+recursive-exclude * .venv
+recursive-exclude * .env
+recursive-exclude * logs
+recursive-exclude * results
+recursive-exclude * datasets
+
+# 包含套件中的資料檔案
+recursive-include twinkle_eval *.yaml
+recursive-include twinkle_eval *.yml
+recursive-include twinkle_eval *.json

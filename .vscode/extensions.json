@@ -1,0 +1,10 @@
+{
+    "recommendations": [
+        "ms-python.black-formatter",
+        "ms-python.isort",
+        "kevinrose.vsc-python-indent",
+        "aaron-bond.better-comments",
+        "streetsidesoftware.code-spell-checker",
+        "ms-python.python"
+    ]
+}

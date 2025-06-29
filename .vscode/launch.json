@@ -1,0 +1,125 @@
+{
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "name": "Debug Twinkle Eval (基本評測)",
+            "type": "python",
+            "request": "launch",
+            "module": "twinkle_eval.cli",
+            "console": "integratedTerminal",
+            "cwd": "${workspaceFolder}",
+            "env": {
+                "PYTHONPATH": "${workspaceFolder}"
+            },
+            "args": [
+                "--config", "config.yaml"
+            ],
+            "justMyCode": false,
+            "stopOnEntry": false
+        },
+        {
+            "name": "Debug Twinkle Eval (自定義配置)",
+            "type": "python",
+            "request": "launch",
+            "module": "twinkle_eval.cli",
+            "console": "integratedTerminal",
+            "cwd": "${workspaceFolder}",
+            "env": {
+                "PYTHONPATH": "${workspaceFolder}"
+            },
+            "args": [
+                "--config", "${input:configPath}",
+                "--export", "json", "csv"
+            ],
+            "justMyCode": false,
+            "stopOnEntry": false
+        },
+        {
+            "name": "Debug Twinkle Eval (下載資料集)",
+            "type": "python",
+            "request": "launch",
+            "module": "twinkle_eval.cli",
+            "console": "integratedTerminal",
+            "cwd": "${workspaceFolder}",
+            "env": {
+                "PYTHONPATH": "${workspaceFolder}"
+            },
+            "args": [
+                "--download-dataset", "cais/mmlu",
+                "--dataset-subset", "anatomy",
+                "--output-dir", "datasets"
+            ],
+            "justMyCode": false,
+            "stopOnEntry": false
+        },
+        {
+            "name": "Debug Twinkle Eval (查詢功能)",
+            "type": "python",
+            "request": "launch",
+            "module": "twinkle_eval.cli",
+            "console": "integratedTerminal",
+            "cwd": "${workspaceFolder}",
+            "env": {
+                "PYTHONPATH": "${workspaceFolder}"
+            },
+            "args": [
+                "--list-llms"
+            ],
+            "justMyCode": false,
+            "stopOnEntry": false
+        },
+        {
+            "name": "Debug Twinkle Eval (建立配置)",
+            "type": "python",
+            "request": "launch",
+            "module": "twinkle_eval.cli",
+            "console": "integratedTerminal",
+            "cwd": "${workspaceFolder}",
+            "env": {
+                "PYTHONPATH": "${workspaceFolder}"
+            },
+            "args": [
+                "--init"
+            ],
+            "justMyCode": false,
+            "stopOnEntry": false
+        },
+        {
+            "name": "Debug Twinkle Eval (模組測試)",
+            "type": "python",
+            "request": "launch",
+            "module": "twinkle_eval.cli",
+            "console": "integratedTerminal",
+            "cwd": "${workspaceFolder}",
+            "env": {
+                "PYTHONPATH": "${workspaceFolder}"
+            },
+            "args": [
+                "--config", "config.yaml"
+            ],
+            "justMyCode": false,
+            "stopOnEntry": false
+        },
+        {
+            "name": "Debug 特定檔案",
+            "type": "python",
+            "request": "launch",
+            "program": "${file}",
+            "console": "integratedTerminal",
+            "cwd": "${workspaceFolder}",
+            "env": {
+                "PYTHONPATH": "${workspaceFolder}"
+            },
+            "justMyCode": false,
+            "stopOnEntry": false
+        }
+    ],
+    "inputs": [
+        {
+            "id": "configPath",
+            "type": "promptString",
+            "description": "請輸入配置檔案路徑",
+            "default": "config.yaml"
+        }
+    ]
+} 

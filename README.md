@@ -107,25 +107,130 @@
 
 ## 安裝設定
 
+### 方法一：使用 pip 安裝（推薦）
+
+```bash
+# 從 PyPI 安裝（穩定版本）
+pip install twinkle-eval
+
+# 或從 GitHub 安裝（最新版本）
+pip install git+https://github.com/ai-twinkle/Eval.git
+```
+
+### 方法二：從原始碼安裝
+
 1. 複製專案至本機
    ```bash
    git clone https://github.com/ai-twinkle/Eval.git
+   cd Eval
    ```
-2. 安裝相依套件
+
+2. 安裝套件
    ```bash
-   pip install -r requirements.txt
+   # 安裝正式版本
+   pip install .
+   
+   # 或安裝開發版本（包含開發工具）
+   pip install -e ".[dev]"
    ```
 
 ## 使用方式
 
-1. 複製 `config.template.yaml` 為 `config.yaml` 並依據需求更新設定。
-2. 將評測數據集檔案放入資料集目錄 `datasets`。
-3. 執行評測：
+### 快速開始
+
+1. 安裝完成後，創建配置檔案：
    ```bash
-   python main.py
+   # 使用內建命令創建預設配置檔案
+   twinkle-eval --init
+   
+   # 編輯配置檔案
+   nano config.yaml
    ```
 
+2. 準備評測資料集：
+   ```bash
+   mkdir datasets
+   # 將您的資料集檔案放入 datasets 目錄
+   ```
+
+3. 執行評測：
+   ```bash
+   twinkle-eval --config config.yaml
+   ```
+
+### 命令列選項
+
+安裝完成後，您可以使用 `twinkle-eval` 命令：
+
+```bash
+# 創建預設配置檔案
+twinkle-eval --init
+
+# 使用預設配置執行評測
+twinkle-eval
+
+# 使用自定義配置檔案
+twinkle-eval --config path/to/your/config.yaml
+
+# 同時輸出多種格式的結果
+twinkle-eval --export json csv html
+
+# 列出支援的 LLM 類型
+twinkle-eval --list-llms
+
+# 列出支援的評測策略
+twinkle-eval --list-strategies
+
+# 列出支援的輸出格式
+twinkle-eval --list-exporters
+
+# 顯示版本資訊
+twinkle-eval --version
+
+# 顯示完整幫助
+twinkle-eval --help
+```
+
+### Python API 使用
+
+您也可以在 Python 程式中直接使用 Twinkle Eval：
+
+```python
+from twinkle_eval import TwinkleEvalRunner
+
+# 建立評測執行器
+runner = TwinkleEvalRunner("config.yaml")
+
+# 初始化
+runner.initialize()
+
+# 執行評測
+results = runner.run_evaluation(export_formats=["json", "csv"])
+
+print(f"評測完成！結果已儲存至：{results}")
+```
+
 評測結果會儲存在 `results` 目錄中，檔名包含時間戳記。
+
+## 程式碼架構
+
+重構後的程式碼採用模組化設計，主要包含以下模組：
+
+- **`config.py`**: 配置管理，負責載入和驗證配置檔案
+- **`main.py`**: 主程式入口點，處理命令列介面和評測流程控制
+- **`models.py`**: LLM 抽象層，支援多種 LLM API（目前支援 OpenAI 相容格式）
+- **`datasets.py`**: 資料集載入和處理，支援 JSON、JSONL、CSV、TSV、Parquet 格式
+- **`evaluators.py`**: 評測核心邏輯，包含並行處理和進度追蹤
+- **`evaluation_strategies.py`**: 答案提取策略，包含 Pattern、Box、自定義正則三種策略
+- **`results_exporters.py`**: 結果輸出模組，支援 JSON、CSV、HTML 等格式
+- **`validators.py`**: 驗證工具，確保配置和資料集的正確性
+- **`exceptions.py`**: 自定義異常類別，提供精確的錯誤處理
+
+這種模組化設計讓程式碼更容易維護和擴展，開發者可以輕鬆：
+- 新增支援新的 LLM API
+- 實現新的答案提取策略
+- 增加新的輸出格式
+- 改進驗證邏輯
 
 ## 設定檔說明
 
