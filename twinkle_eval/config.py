@@ -2,11 +2,11 @@ from typing import Any, Dict
 
 import yaml
 
-from .evaluation_strategies import EvaluationStrategyFactory
-from .exceptions import ConfigurationError, ValidationError
-from .logger import log_error, log_info
-from .models import LLMFactory
-from .validators import ConfigValidator, DatasetValidator
+from twinkle_eval.evaluation_strategies import EvaluationStrategyFactory
+from twinkle_eval.exceptions import ConfigurationError, ValidationError
+from twinkle_eval.logger import log_error, log_info
+from twinkle_eval.models import LLMFactory
+from twinkle_eval.validators import ConfigValidator, DatasetValidator
 
 
 class ConfigurationManager:
@@ -246,7 +246,7 @@ class ConfigurationManager:
 
         try:
             # 嘗試建立 GoogleSheetsService 實例來驗證配置
-            from .google_services import GoogleSheetsService
+            from twinkle_eval.google_services import GoogleSheetsService
 
             sheets_service = GoogleSheetsService(config)
 
@@ -273,7 +273,7 @@ class ConfigurationManager:
 
         try:
             # 嘗試建立 GoogleDriveUploader 實例來驗證配置
-            from .google_services import GoogleDriveUploader
+            from twinkle_eval.google_services import GoogleDriveUploader
 
             drive_uploader = GoogleDriveUploader(config)
 

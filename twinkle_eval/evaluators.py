@@ -6,10 +6,10 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from tqdm import tqdm
 
-from .dataset import Dataset
-from .evaluation_strategies import EvaluationStrategy
-from .logger import log_error
-from .models import LLM
+from twinkle_eval.dataset import Dataset
+from twinkle_eval.evaluation_strategies import EvaluationStrategy
+from twinkle_eval.logger import log_error
+from twinkle_eval.models import LLM
 
 
 class RateLimiter:

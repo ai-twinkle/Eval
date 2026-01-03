@@ -9,11 +9,11 @@ import numpy as np
 
 from twinkle_eval.exceptions import ConfigurationError
 
-from .config import load_config
-from .dataset import find_all_evaluation_files
-from .evaluators import Evaluator
-from .logger import log_error, log_info
-from .results_exporters import ResultsExporterFactory
+from twinkle_eval.config import load_config
+from twinkle_eval.dataset import find_all_evaluation_files
+from twinkle_eval.evaluators import Evaluator
+from twinkle_eval.logger import log_error, log_info
+from twinkle_eval.results_exporters import ResultsExporterFactory
 
 
 def convert_json_to_html(json_file_path: str) -> int:
@@ -342,7 +342,7 @@ class TwinkleEvalRunner:
         google_drive_config = google_services_config.get("google_drive", {})
         if google_drive_config.get("enabled", False):
             try:
-                from .google_services import GoogleDriveUploader
+                from twinkle_eval.google_services import GoogleDriveUploader
 
                 uploader = GoogleDriveUploader(google_drive_config)
                 upload_info = uploader.upload_latest_files(self.start_time, "logs", "results")
@@ -526,7 +526,7 @@ def main() -> int:
 
     # 處理查詢命令
     if args.list_llms:
-        from .models import LLMFactory
+        from twinkle_eval.models import LLMFactory
 
         print("可用的 LLM 類型:")
         for llm_type in LLMFactory.get_available_types():
@@ -534,7 +534,7 @@ def main() -> int:
         return 0
 
     if args.list_strategies:
-        from .evaluation_strategies import EvaluationStrategyFactory
+        from twinkle_eval.evaluation_strategies import EvaluationStrategyFactory
 
         print("可用的評測策略:")
         for strategy in EvaluationStrategyFactory.get_available_types():
@@ -548,7 +548,7 @@ def main() -> int:
         return 0
 
     if args.version:
-        from . import get_info
+        from twinkle_eval import get_info
 
         info = get_info()
         print(f"🌟 {info['name']} v{info['version']}")
@@ -563,7 +563,7 @@ def main() -> int:
     # HuggingFace 資料集相關命令
     if args.download_dataset:
         try:
-            from .dataset import download_huggingface_dataset
+            from twinkle_eval.dataset import download_huggingface_dataset
 
             download_huggingface_dataset(
                 dataset_name=args.download_dataset,
@@ -579,7 +579,7 @@ def main() -> int:
 
     if args.dataset_info:
         try:
-            from .dataset import list_huggingface_dataset_info
+            from twinkle_eval.dataset import list_huggingface_dataset_info
 
             info = list_huggingface_dataset_info(
                 dataset_name=args.dataset_info, subset=args.dataset_subset
@@ -604,8 +604,8 @@ def main() -> int:
     # Benchmark 命令
     if args.benchmark:
         try:
-            from .benchmark import BenchmarkRunner, print_benchmark_summary, save_benchmark_results
-            from .config import load_config
+            from twinkle_eval.benchmark import BenchmarkRunner, print_benchmark_summary, save_benchmark_results
+            from twinkle_eval.config import load_config
 
             config = load_config(args.config)
             runner = BenchmarkRunner(config)

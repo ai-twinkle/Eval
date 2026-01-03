@@ -27,17 +27,17 @@ __version__ = "1.1.0"
 __author__ = "Twinkle AI Team"
 __license__ = "MIT"
 
-from .config import ConfigurationManager, load_config
-from .dataset import Dataset, find_all_evaluation_files
-from .evaluation_strategies import (
+from twinkle_eval.config import ConfigurationManager, load_config
+from twinkle_eval.dataset import Dataset, find_all_evaluation_files
+from twinkle_eval.evaluation_strategies import (
     BoxExtractionStrategy,
     CustomRegexStrategy,
     EvaluationStrategy,
     EvaluationStrategyFactory,
     PatternMatchingStrategy,
 )
-from .evaluators import Evaluator, RateLimiter
-from .exceptions import (
+from twinkle_eval.evaluators import Evaluator, RateLimiter
+from twinkle_eval.exceptions import (
     ConfigurationError,
     DatasetError,
     EvaluationError,
@@ -48,8 +48,8 @@ from .exceptions import (
 )
 
 # 匯入主要類別和函數，方便使用者直接從套件層級使用
-from .main import TwinkleEvalRunner, create_cli_parser
-from .models import LLM, LLMFactory, OpenAIModel
+from twinkle_eval.main import TwinkleEvalRunner, create_cli_parser
+from twinkle_eval.models import LLM, LLMFactory, OpenAIModel
 
 # 定義 __all__ 以控制 from twinkle_eval import * 的行為
 __all__ = [

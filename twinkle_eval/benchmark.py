@@ -6,8 +6,8 @@ from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from typing import Any, Dict, List, Optional
 
-from .logger import log_error, log_info
-from .models import LLMFactory
+from twinkle_eval.logger import log_error, log_info
+from twinkle_eval.models import LLMFactory
 
 
 @dataclass

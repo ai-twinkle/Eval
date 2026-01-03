@@ -725,7 +725,7 @@ class ResultsExporterFactory:
         # 延遲載入 Google Sheets exporter 以避免循環匯入
         if exporter_type == "google_sheets" and cls._registry[exporter_type] is None:
             try:
-                from .google_services import GoogleSheetsExporter
+                from twinkle_eval.google_services import GoogleSheetsExporter
 
                 cls._registry[exporter_type] = GoogleSheetsExporter
             except ImportError as e:

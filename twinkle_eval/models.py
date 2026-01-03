@@ -5,7 +5,7 @@ import httpx
 from openai import OpenAI
 from openai.types.chat import ChatCompletion
 
-from .logger import log_error
+from twinkle_eval.logger import log_error
 
 
 class LLM(ABC):

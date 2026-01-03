@@ -5,7 +5,7 @@ from typing import Any, Dict, List, Optional
 
 import yaml
 
-from .exceptions import ConfigurationError, ValidationError
+from twinkle_eval.exceptions import ConfigurationError, ValidationError
 
 
 class ConfigValidator:

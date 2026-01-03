@@ -15,7 +15,7 @@ from tqdm import tqdm
 
 from datasets import get_dataset_config_names, get_dataset_split_names, load_dataset
 
-from .logger import log_error, log_info, log_warning
+from twinkle_eval.logger import log_error, log_info, log_warning
 
 
 class Dataset:

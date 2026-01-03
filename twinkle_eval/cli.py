@@ -12,12 +12,12 @@ from typing import List, Optional
 # 確保能夠正確匯入模組
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-from .evaluation_strategies import EvaluationStrategyFactory
-from .logger import log_error
-from .main import create_cli_parser
-from .main import main as main_func
-from .models import LLMFactory
-from .results_exporters import ResultsExporterFactory
+from twinkle_eval.evaluation_strategies import EvaluationStrategyFactory
+from twinkle_eval.logger import log_error
+from twinkle_eval.main import create_cli_parser
+from twinkle_eval.main import main as main_func
+from twinkle_eval.models import LLMFactory
+from twinkle_eval.results_exporters import ResultsExporterFactory
 
 
 def main(args: Optional[List[str]] = None) -> int:
@@ -59,7 +59,7 @@ def main(args: Optional[List[str]] = None) -> int:
 
 def print_version():
     """列印版本資訊"""
-    from . import __author__, __version__
+    from twinkle_eval import __author__, __version__
 
     print(f"🌟 Twinkle Eval v{__version__}")
     print(f"作者: {__author__}")
