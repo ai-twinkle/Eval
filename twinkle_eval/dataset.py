@@ -6,16 +6,86 @@
 
 import json
 import os
+import string as _string
 from pathlib import Path
 from typing import Dict, Optional
 
 import pandas as pd
 import pyarrow as pa
+from datasets import get_dataset_config_names, get_dataset_split_names, load_dataset
 from tqdm import tqdm
 
-from datasets import get_dataset_config_names, get_dataset_split_names, load_dataset
-
 from .logger import log_error, log_info, log_warning
+
+
+def _choices_to_letter_keys(choices: list) -> list:
+    """為 choices 清單產生對應的大寫字母標籤（A、B、C … Z、AA、AB …）。"""
+    labels = []
+    for i in range(len(choices)):
+        if i < 26:
+            labels.append(_string.ascii_uppercase[i])
+        else:
+            # 超過 26 個選項時使用雙字母，例如 AA、AB…
+            labels.append(_string.ascii_uppercase[(i // 26) - 1] + _string.ascii_uppercase[i % 26])
+    return labels
+
+
+def _normalize_record(record: dict) -> dict:
+    """將 choices-list 格式正規化為具名字母鍵格式。
+
+    支援兩種輸入格式：
+
+    1. 整數索引 answer（MMLU HuggingFace 格式）：
+       {"question": "...", "choices": ["opt0", "opt1", ...], "answer": 1}
+       → {"question": "...", "A": "opt0", "B": "opt1", ..., "answer": "B"}
+
+    2. 字母 answer（choices 仍為 list 但 answer 已是字母）：
+       {"question": "...", "choices": ["opt0", "opt1", ...], "answer": "B"}
+       → {"question": "...", "A": "opt0", "B": "opt1", ..., "answer": "B"}
+
+    若 record 已是具名字母鍵格式（A/B/C/… 分開的欄位）則直接回傳（向下相容）。
+    支援超過 4 個選項的資料集。
+    """
+    choices = record.get("choices")
+    answer = record.get("answer")
+
+    # Accept list or any array-like sequence (e.g. numpy.ndarray from parquet)
+    if not (
+        hasattr(choices, "__iter__")
+        and not isinstance(choices, (str, bytes, dict))
+        and len(choices) >= 2
+    ):
+        return record
+
+    # Ensure it's a plain Python list for consistent handling
+    choices = list(choices)
+
+    labels = _choices_to_letter_keys(choices)
+
+    # 嘗試將 answer 解析成整數索引
+    try:
+        idx = int(answer)
+    except (TypeError, ValueError):
+        idx = None
+
+    if idx is not None:
+        # answer 是整數索引（例如 MMLU 的 0/1/2/3）
+        if not (0 <= idx < len(choices)):
+            return record  # 索引超出範圍，保持原始格式
+        answer_letter = labels[idx]
+    else:
+        # answer 已是字母字串（例如 "B"）
+        answer_str = str(answer).strip().upper()
+        if answer_str not in labels:
+            return record  # 無法對應到任何標籤，保持原始格式
+        answer_letter = answer_str
+
+    # 建立正規化後的 record
+    normalized = {k: v for k, v in record.items() if k not in ("choices", "answer")}
+    for label, text in zip(labels, choices):
+        normalized[label] = text
+    normalized["answer"] = answer_letter
+    return normalized
 
 
 class Dataset:
@@ -27,6 +97,8 @@ class Dataset:
     - Parquet: Apache Parquet 格式
     - Arrow: Apache Arrow 格式
     - CSV/TSV: 逗號或制表符分隔的文字檔
+
+    自動將 MMLU HuggingFace 格式（choices + 整數 answer）正規化為 A/B/C/D 格式。
     """
 
     def __init__(self, file_path: str):
@@ -77,6 +149,7 @@ class Dataset:
                 raise ValueError(f"不支援的檔案格式: {ext}")
 
             log_info(f"成功讀取檔案: {self.file_path}，共 {len(data)} 題")
+            data = [_normalize_record(r) for r in data]
             return data
         except Exception as e:
             log_error(f"讀取資料錯誤: {e}")

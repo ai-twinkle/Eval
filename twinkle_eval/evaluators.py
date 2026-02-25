@@ -1,6 +1,7 @@
 import json
 import os
 import random
+import string
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
@@ -36,10 +37,18 @@ class Evaluator:
         self.rate_limiter = RateLimiter(calls_per_second=self.config["llm_api"]["api_rate_limit"])
 
     def shuffle_question_options(self, question_data):
-        options = []
-        for key in ["A", "B", "C", "D"]:
-            if key in question_data:
-                options.append((key, question_data[key]))
+        # 動態偵測所有大寫字母選項鍵（支援超過 4 個選項的資料集）
+        option_keys = sorted(
+            [
+                k
+                for k in question_data
+                if len(k) >= 1
+                and all(c in string.ascii_uppercase for c in k)
+                and k not in ("answer",)
+            ],
+            key=lambda k: (len(k), k),
+        )
+        options = [(k, question_data[k]) for k in option_keys]
 
         if not options:
             return question_data
@@ -49,11 +58,11 @@ class Evaluator:
 
         random.shuffle(options)
 
-        new_data = {"question": question_data["question"]}
-
-        for (old_key, text), (new_key, _) in zip(
-            options, [("A", ""), ("B", ""), ("C", ""), ("D", "")]
-        ):
+        # 以原始標籤清單作為新標籤（保持相同數量的選項）
+        new_data = {
+            k: v for k, v in question_data.items() if k not in option_keys and k != "answer"
+        }
+        for (_, text), new_key in zip(options, option_keys):
             new_data[new_key] = text
             if text == correct_option_text:
                 new_data["answer"] = new_key
@@ -138,8 +147,8 @@ class Evaluator:
         os.makedirs(results_dir, exist_ok=True)
         results_path = os.path.join(results_dir, f"eval_results_{timestamp}.jsonl")
 
-        # 將每個 detail 項目寫入 JSONL 檔案
-        with open(results_path, "w", encoding="utf-8") as f:
+        # 將每個 detail 項目寫入 JSONL 檔案（append 模式以累積同一 run 的所有檔案結果）
+        with open(results_path, "a", encoding="utf-8") as f:
             for detail in detailed_results:
                 f.write(json.dumps(detail, ensure_ascii=False) + "\n")
 
