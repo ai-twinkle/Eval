@@ -222,7 +222,8 @@ class Evaluator:
                 f.write(json.dumps(detail, ensure_ascii=False) + "\n")
 
         if world_size > 1:
-            print(f"[節點 {node_id} | Rank {rank}] ✅ 評測完成，結果已儲存至 {results_path}")
+            display_node_id = node_id.replace("node", "")
+            print(f"[節點 {display_node_id} | Rank {rank}] ✅ 評測完成，結果已儲存至 {results_path}")
         else:
             print(f"✅ 評測完成，結果已儲存至 {results_path}")
             
