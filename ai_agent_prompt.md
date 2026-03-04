@@ -21,9 +21,10 @@
 
 ### 步驟 1：安裝套件
 確保 `Twinkle-Eval` 套件已以編輯模式 (editable mode) 安裝。
-**指令**:
+**請使用 `uv` 進行安裝以加速過程**：
 ```bash
-pip install -e .
+cd Twinkle-Eval
+uv pip install --system -e .
 ```
 
 ### 步驟 2：設定環境
