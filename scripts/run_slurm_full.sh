@@ -220,6 +220,13 @@ for i in $(seq 0 $((INSTANCES_PER_NODE - 1))); do
         export VLLM_CACHE_ROOT="/tmp/vllm_cache_${GLOBAL_RANK}"
         export XDG_CACHE_HOME="/tmp/xdg_cache_${GLOBAL_RANK}"
         export TIKTOKEN_RS_CACHE_DIR="/tmp/tiktoken_rs_${GLOBAL_RANK}"
+        export TMPDIR="/tmp/vllm_tmp_${GLOBAL_RANK}"
+
+        mkdir -p "$TMPDIR"
+        # 加入啟動延遲錯開，防止動態通訊埠分配產生競爭 (Race Condition)
+        # vLLM 內部會同時使用 `get_open_port()` 尋找 NCCL 初始化通訊埠，
+        # 如果在同一個毫秒啟動，會導致多個實例拿到同一個通訊埠而引發 NCCL error。
+        sleep $(( i * 10 ))
         
         echo "[節點 $SLURM_NODEID | Rank $GLOBAL_RANK] 啟動 vLLM (GPUs: $GPU_LIST, Port: $PORT)..."
         "${VLLM_VENV_PATH}/bin/python" -m vllm.entrypoints.openai.api_server \
