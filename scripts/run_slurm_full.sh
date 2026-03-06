@@ -219,6 +219,7 @@ for i in $(seq 0 $((INSTANCES_PER_NODE - 1))); do
         export TRITON_CACHE_DIR="/tmp/triton_${GLOBAL_RANK}"
         export VLLM_CACHE_ROOT="/tmp/vllm_cache_${GLOBAL_RANK}"
         export XDG_CACHE_HOME="/tmp/xdg_cache_${GLOBAL_RANK}"
+        export TIKTOKEN_RS_CACHE_DIR="/tmp/tiktoken_rs_${GLOBAL_RANK}"
         
         echo "[節點 $SLURM_NODEID | Rank $GLOBAL_RANK] 啟動 vLLM (GPUs: $GPU_LIST, Port: $PORT)..."
         "${VLLM_VENV_PATH}/bin/python" -m vllm.entrypoints.openai.api_server \

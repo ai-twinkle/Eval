@@ -197,6 +197,7 @@ for i in $(seq 0 $((INSTANCES_PER_NODE - 1))); do
         export TRITON_CACHE_DIR="/tmp/triton_${i}"
         export VLLM_CACHE_ROOT="/tmp/vllm_cache_${i}"
         export XDG_CACHE_HOME="/tmp/xdg_cache_${i}"
+        export TIKTOKEN_RS_CACHE_DIR="/tmp/tiktoken_rs_${i}"
 
         echo "[Rank $i] 啟動 vLLM (GPUs: $GPU_LIST, Port: $PORT)..."
         "${VLLM_VENV}/bin/python" -m vllm.entrypoints.openai.api_server \
