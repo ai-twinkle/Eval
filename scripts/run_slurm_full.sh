@@ -199,6 +199,12 @@ VLLM_VENV_PATH="${6}"
 
 echo "[節點 $SLURM_NODEID] 開始啟動 $INSTANCES_PER_NODE 個 vLLM 實例..."
 
+# 清理前次 job 殘留的 /tmp 快取與 /dev/shm 共享記憶體，
+# 避免超過 overcommit 限制導致 mmap 失敗，以及 NCCL /dev/shm 耗盡
+echo "[節點 $SLURM_NODEID] 清理 /tmp 與 /dev/shm 前次殘留..."
+rm -rf /tmp/vllm_cache_* /tmp/inductor_* /tmp/triton_* /tmp/vllm_tmp_* /tmp/tiktoken_rs_* /tmp/xdg_cache_* /tmp/vllm_*.log 2>/dev/null || true
+rm -f /dev/shm/nccl-* /dev/shm/torch_* 2>/dev/null || true
+
 for i in $(seq 0 $((INSTANCES_PER_NODE - 1))); do
     GLOBAL_RANK=$(( RANK_OFFSET + i ))
     START_GPU=$(( i * $2 * $3 ))

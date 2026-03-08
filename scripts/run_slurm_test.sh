@@ -178,6 +178,12 @@ echo "本次評測時間戳 (RUN_TIMESTAMP): ${RUN_TIMESTAMP}"
 
 START_TIME=$(date +%s)
 
+# 清理前次 job 殘留的 /tmp 快取與 /dev/shm 共享記憶體，
+# 避免超過 overcommit 限制導致 mmap 失敗，以及 NCCL /dev/shm 耗盡
+echo "清理 /tmp 與 /dev/shm 前次殘留..."
+rm -rf /tmp/vllm_cache_* /tmp/inductor_* /tmp/triton_* /tmp/vllm_tmp_test_* /tmp/tiktoken_rs_* /tmp/xdg_cache_* /tmp/vllm_*.log 2>/dev/null || true
+rm -f /dev/shm/nccl-* /dev/shm/torch_* 2>/dev/null || true
+
 for i in $(seq 0 $((INSTANCES_PER_NODE - 1))); do
     START_GPU=$(( i * TP_SIZE * PP_SIZE ))
     END_GPU=$(( START_GPU + TP_SIZE * PP_SIZE - 1 ))
