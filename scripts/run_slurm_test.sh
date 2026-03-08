@@ -252,6 +252,8 @@ for i in $(seq 0 $((INSTANCES_PER_NODE - 1))); do
 
         if [ $VLLM_START_OK -eq 0 ]; then
             echo "[Rank $i] vLLM 重試 ${MAX_VLLM_RETRIES} 次均失敗，取消整個 SLURM Job 以防止其他 rank 無效 hanging..."
+            # log already written under logs/vllm_test_rank${i}.log
+            echo "[Rank $i] vLLM 日誌保存在 logs/vllm_test_rank${i}.log"
             scancel "${SLURM_JOB_ID}"
             exit 1
         fi
