@@ -227,24 +227,58 @@ for i in $(seq 0 $((INSTANCES_PER_NODE - 1))); do
         # vLLM 內部會同時使用 `get_open_port()` 尋找 NCCL 初始化通訊埠，
         # 如果在同一個毫秒啟動，會導致多個實例拿到同一個通訊埠而引發 NCCL error。
         sleep $(( i * 10 ))
-        
-        echo "[節點 $SLURM_NODEID | Rank $GLOBAL_RANK] 啟動 vLLM (GPUs: $GPU_LIST, Port: $PORT)..."
-        "${VLLM_VENV_PATH}/bin/python" -m vllm.entrypoints.openai.api_server \
-            --model "${1}" \
-            --tensor-parallel-size "${2}" \
-            --pipeline-parallel-size "${3}" \
-            --port $PORT \
-            --gpu-memory-utilization 0.90 \
-            --max-model-len "${5}" \
-            --trust-remote-code > "/tmp/vllm_${GLOBAL_RANK}.log" 2>&1 &
-        VLLM_PID=$!
-        
-        timeout 3600 bash -c "until curl -s ${BASE_URL}/models > /dev/null; do sleep 5; done" || {
-            echo "[節點 $SLURM_NODEID | Rank $GLOBAL_RANK] vLLM 伺服器啟動失敗。"
-            kill $VLLM_PID
+
+        MAX_VLLM_RETRIES=3
+        VLLM_START_OK=0
+
+        for attempt in $(seq 1 $MAX_VLLM_RETRIES); do
+            echo "[節點 $SLURM_NODEID | Rank $GLOBAL_RANK] 啟動 vLLM (第 $attempt/$MAX_VLLM_RETRIES 次, GPUs: $GPU_LIST, Port: $PORT)..."
+            "${VLLM_VENV_PATH}/bin/python" -m vllm.entrypoints.openai.api_server \
+                --model "${1}" \
+                --tensor-parallel-size "${2}" \
+                --pipeline-parallel-size "${3}" \
+                --port $PORT \
+                --gpu-memory-utilization 0.90 \
+                --max-model-len "${5}" \
+                --limit-mm-per-prompt '{"image": 1}' \
+                --trust-remote-code > "/tmp/vllm_${GLOBAL_RANK}.log" 2>&1 &
+            VLLM_PID=$!
+
+            WAIT_DEADLINE=$(( $(date +%s) + 3600 ))
+            VLLM_READY=0
+            while [ $(date +%s) -lt $WAIT_DEADLINE ]; do
+                if ! kill -0 $VLLM_PID 2>/dev/null; then
+                    echo "[節點 $SLURM_NODEID | Rank $GLOBAL_RANK] vLLM 程序已意外終止 (第 $attempt 次)。"
+                    break
+                fi
+                if curl -s "${BASE_URL}/models" > /dev/null 2>&1; then
+                    VLLM_READY=1
+                    break
+                fi
+                sleep 5
+            done
+
+            if [ $VLLM_READY -eq 1 ]; then
+                VLLM_START_OK=1
+                break
+            fi
+
+            echo "[節點 $SLURM_NODEID | Rank $GLOBAL_RANK] vLLM 第 $attempt 次啟動失敗，正在終止程序..."
+            kill $VLLM_PID 2>/dev/null || true
+            wait $VLLM_PID 2>/dev/null || true
+
+            if [ $attempt -lt $MAX_VLLM_RETRIES ]; then
+                echo "[節點 $SLURM_NODEID | Rank $GLOBAL_RANK] 等待 30 秒後重試..."
+                sleep 30
+            fi
+        done
+
+        if [ $VLLM_START_OK -eq 0 ]; then
+            echo "[節點 $SLURM_NODEID | Rank $GLOBAL_RANK] vLLM 重試 ${MAX_VLLM_RETRIES} 次均失敗，取消整個 SLURM Job 以防止其他節點無效 hanging..."
+            scancel "${SLURM_JOB_ID}"
             exit 1
-        }
-        
+        fi
+
         echo "[節點 $SLURM_NODEID | Rank $GLOBAL_RANK] vLLM 就緒。開始評測 (本機寫入)..."
         uv run twinkle-eval --config "$LOCAL_CONFIG" --export json
         
