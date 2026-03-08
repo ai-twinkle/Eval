@@ -8,6 +8,7 @@ llm_api:
 
 model:
   name: "model-name"        # 模型名稱
+  version: "v1.0"           # 版本或 checkpoint
   temperature: 0.0          # 溫度參數
   top_p: 0.9                # Top-p 機率閾值
   max_tokens: 4096          # 最大輸出 token 數
@@ -19,6 +20,8 @@ evaluation:
   dataset_paths:            # 資料集路徑
     - "datasets/dataset1/"
     - "datasets/dataset2/"
+  run_id: "exp-001"         # 批次或實驗編號
+  creator: "user"           # 評測執行者
   evaluation_method: "box"  # 評測方法（支援 "pattern" 或 "box"）
   system_prompt:             # 系統提示詞，僅於 box 評測方法中使用
     zh: |

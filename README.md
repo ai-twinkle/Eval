@@ -189,6 +189,21 @@ twinkle-eval --version
 
 # 顯示完整幫助
 twinkle-eval --help
+
+# 上傳結果至 S3
+twinkle-eval upload /path/to/results \
+    --bucket my-bucket \
+    --access-key YOUR_ACCESS_KEY \
+    --secret-key YOUR_SECRET_KEY \
+    --endpoint-url https://s3.example.com \
+    --region us-east-1
+
+# 上傳至自簽憑證的 S3 Endpoint (跳過 SSL 驗證)
+twinkle-eval upload /path/to/results \
+    --bucket my-bucket \
+    --endpoint-url https://internal-s3.example.com \
+    --no-verify-ssl \
+    --access-key ... --secret-key ...
 ```
 
 ### Python API 使用
