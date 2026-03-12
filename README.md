@@ -1,31 +1,11 @@
-![Twinkle Eval](assets/logo.png)
-
-# 🌟 Twinkle Eval：高效且準確的 AI 評測工具
+# Twinkle Eval：高效且準確的 AI 評測工具
 
 [![Python](https://img.shields.io/badge/python-≥3.10-blue.svg?logo=python)](https://www.python.org)
-![Project Status](https://img.shields.io/badge/status-active-brightgreen)
-![Platform](https://img.shields.io/badge/platform-Windows%20|%20Linux-blue)
-
 ![GitHub license](https://img.shields.io/github/license/ai-twinkle/Eval)
-![GitHub issues](https://img.shields.io/github/issues/ai-twinkle/Eval)
-![GitHub stars](https://img.shields.io/github/stars/ai-twinkle/Eval?style=social)
-![GitHub forks](https://img.shields.io/github/forks/ai-twinkle/Eval?style=social)
-[![GitHub pull request](https://img.shields.io/badge/PRs-welcome-blue)](https://github.com/ai-twinkle/Eval/pulls)
-
-![GitHub last commit](https://img.shields.io/github/last-commit/ai-twinkle/Eval)
-![GitHub repo size](https://img.shields.io/github/repo-size/ai-twinkle/Eval)
-![GitHub top language](https://img.shields.io/github/languages/top/ai-twinkle/Eval)
-![GitHub languages](https://img.shields.io/github/languages/count/ai-twinkle/Eval)
-
-[![Discord](https://img.shields.io/discord/1310544431983759450?label=Twinkle%20AI&logo=discord&style=for-the-badge)](https://discord.gg/Cx737yw4ed)
-[![Hugging Face](https://img.shields.io/badge/🤗%20Visit%20Huggingface-twinkle--ai-blue?style=for-the-badge)](https://huggingface.co/twinkle-ai)
-[![LinkedIn](https://img.shields.io/badge/LinkedIn-Visit%20My%20Profile-blue?logo=linkedin&style=flat)](https://linkedin.com/company/twinkle-ai)
-
-[![Open in Colab](https://img.shields.io/badge/Open%20in-Colab-orange?logo=google-colab&style=for-the-badge)](https://colab.research.google.com/github/LiuYuWei/llm-colab-application/blob/main/Simon_LLM_Application_Twinkle_Eval_Tool_Google_Gemini_Model_Evaluation.ipynb)
+[![Website](https://img.shields.io/badge/Website-twinkleai.tw-blue?style=flat)](https://twinkleai.tw/)
+<!-- [![PyPI](https://img.shields.io/pypi/v/lmms-eval)](https://pypi.org/project/lmms-eval) -->
 
 本專案為 LLM（Large Language Model）評測框架，採用並行且隨機化測試方法，提供客觀的模型性能分析與穩定性評估，並支援多種常見評測數據集。
-> 📖 **[Twinkle Eval 可對話式維基百科頁面（由 DeepWiki 生成）](https://deepwiki.com/ai-twinkle/Eval)**  
-> 備註：內容由人工智慧生成，準確性無法保證，僅供參考。
 
 ## 目錄
 
@@ -43,7 +23,7 @@
   - [評測設定](#評測設定)
   - [日誌設定](#日誌設定)
 - [輸出結果](#輸出結果)
-- [模型實測結果](#模型實測結果)
+- [模型實測結果排行榜](#模型實測結果排行榜)
 - [貢獻者](#貢獻者)
 - [授權條款](#授權條款)
 - [引用](#引用)
@@ -83,7 +63,7 @@
 - **格式控制**：指定 `\box{選項}` 或 `\boxed{選項}` 等框選格式，嚴格管理輸出呈現樣式。
 - **錯誤處理**：自動重試與超時控制機制。
 
-### 支援格式及常見數據集
+### 支援格式及常見資料集
 
 任何符合以下格式的 `.csv`、`.json`、`.jsonl` 或 `.parquet` 檔案，內容需包含下列欄位格式（不限於 TMMLU+）：
 
@@ -214,23 +194,28 @@ print(f"評測完成！結果已儲存至：{results}")
 
 ## 程式碼架構
 
-重構後的程式碼採用模組化設計，主要包含以下模組：
+程式碼採用模組化設計，主要包含以下模組：
 
+- **`cli.py`**: 命令列介面入口點
+- **`main.py`**: 主程式邏輯，處理評測流程控制
 - **`config.py`**: 配置管理，負責載入和驗證配置檔案
-- **`main.py`**: 主程式入口點，處理命令列介面和評測流程控制
 - **`models.py`**: LLM 抽象層，支援多種 LLM API（目前支援 OpenAI 相容格式）
-- **`datasets.py`**: 資料集載入和處理，支援 JSON、JSONL、CSV、TSV、Parquet 格式
+- **`dataset.py`**: 資料集載入和處理，支援 JSON、JSONL、CSV、TSV、Parquet、Arrow 格式
 - **`evaluators.py`**: 評測核心邏輯，包含並行處理和進度追蹤
 - **`evaluation_strategies.py`**: 答案提取策略，包含 Pattern、Box、自定義正則三種策略
-- **`results_exporters.py`**: 結果輸出模組，支援 JSON、CSV、HTML 等格式
+- **`results_exporters.py`**: 結果輸出模組，支援 JSON、JSONL、CSV、HTML、Google Sheets 等格式
 - **`validators.py`**: 驗證工具，確保配置和資料集的正確性
 - **`exceptions.py`**: 自定義異常類別，提供精確的錯誤處理
+- **`logger.py`**: 日誌工具，處理日誌記錄與輸出
+- **`benchmark.py`**: 效能基準測試工具
+- **`google_services.py`**: Google Drive 和 Google Sheets 整合功能
 
 這種模組化設計讓程式碼更容易維護和擴展，開發者可以輕鬆：
-- 新增支援新的 LLM API
-- 實現新的答案提取策略
-- 增加新的輸出格式
-- 改進驗證邏輯
+
+- 新增支援新的 LLM API（透過 Factory 模式）
+- 實現新的答案提取策略（透過 Strategy 模式）
+- 增加新的輸出格式（透過 Exporter Factory）
+- 整合新的雲端服務（如 Google Drive、Google Sheets）
 
 ## 設定檔說明
 
@@ -297,7 +282,7 @@ logging:
 
 ## 輸出結果
 
-本專案輸出兩份結果，分別為 `results_{timestamp}.json` 與 `eval_results_{timestamp}.json`。
+本專案主要輸出 `results_{timestamp}.json` 摘要結果，並可選擇輸出 `eval_results_{timestamp}.jsonl` 詳細結果（使用 JSONL 格式匯出時）。
 
 ### `results_{timestamp}.json`
 
@@ -355,9 +340,9 @@ logging:
 }
 ```
 
-### `eval_results_{timestamp}.json`
+### `eval_results_{timestamp}.jsonl`
 
-這個檔案用來**記錄單一測試檔中每一題的答題狀況**，適合：
+這個檔案（JSONL 格式）用來**記錄單一測試檔中每一題的答題狀況**，適合：
 
 - 分析錯題、了解模型出錯的傾向
 - 搭配資料視覺化（如 confusion matrix、錯誤率熱圖）
@@ -384,27 +369,11 @@ logging:
 }
 ```
 
-## 模型實測結果
+## 模型實測結果排行榜
 
-> [!NOTE]
-> 本表將隨時間更新模型評測分數
-
-| 模型                                                                                                                          | 評測模式 | TMMLU+(%)       | tw-legal(%)     | MMLU(%)         | 測試次數 | 選項排序 |
-| ----------------------------------------------------------------------------------------------------------------------------- | -------- | --------------- | --------------- | --------------- | -------- | -------- |
-| [meta-llama/Llama-4-Maverick-17B-128E-Instruct-FP8](https://huggingface.co/meta-llama/Llama-4-Maverick-17B-128E-Instruct-FP8) | box      | 78.27 (±0.0130) | 61.40 (±0.0081) | 87.26 (±0.0085) | 3        | 隨機     |
-| [meta-llama/Llama-4-Scout-17B-16E-Instruct](https://huggingface.co/meta-llama/Llama-4-Scout-17B-16E-Instruct)                 | box      | 67.71 (±0.0147) | 47.21 (±0.0045) | 83.31 (±0.0097) | 3        | 隨機     |
-| [mistralai/Mistral-Small-24B-Instruct-2501](https://huggingface.co/mistralai/Mistral-Small-24B-Instruct-2501)                 | box      | 56.15 (±0.0172) | 37.48 (±0.0098) | 74.61 (±0.0154) | 3        | 隨機     |
-| [meta-llama/Llama-3.2-3B-Instruct](https://huggingface.co/meta-llama/Llama-3.2-3B-Instruct)                                   | box      | 15.49 (±0.0104) | 25.68 (±0.0200) | 6.90 (±0.0096)  | 3        | 隨機     |
-| [meta-llama/Llama-3.2-3B-Instruct](https://huggingface.co/meta-llama/Llama-3.2-3B-Instruct)                                   | pattern  | 35.85 (±0.0174) | 32.22 (±0.0023) | 59.33 (±0.0168) | 3        | 隨機     |
-| [MediaTek-Research/Llama-Breeze2-3B-Instruct](https://huggingface.co/MediaTek-Research/Llama-Breeze2-3B-Instruct)             | pattern  | 40.32 (±0.0181) | 38.92 (±0.0193) | 55.37 (±0.0180) | 3        | 隨機     |
-| [twinkle-ai/Llama-3.2-3B-F1-Instruct](https://huggingface.co/twinkle-ai/Llama-3.2-3B-F1-Instruct)                             | box      | 46.16 (±0.0198) | 34.92 (±0.0243) | 51.22 (±0.0206) | 3        | 隨機     |
+最新模型評測結果請參閱 [TW Eval Leaderboard](https://apps.twinkleai.tw/tw-eval-leaderboard/?lang=zh-TW)，排行榜將持續更新最新評測分數。
 
 ## 貢獻者
-
-[![Teds Lin](https://img.shields.io/badge/GitHub-Teds%20Lin-blue?logo=github)](https://github.com/teds-lin)
-[![Liang Hsun Huang](https://img.shields.io/badge/GitHub-Huang%20Liang%20Hsun-blue?logo=github)](https://github.com/lianghsun)
-[![Min Yi Chen](https://img.shields.io/badge/GitHub-Min%20Yi%20Chen-blue?logo=github)](https://github.com/cyc00518)
-[![Dave Sung](https://img.shields.io/badge/GitHub-Dave%20Sung-blue?logo=github)](https://github.com/k1dav)
 
 本專案由 [Twinkle AI](https://github.com/ai-twinkle) 與 [APMIC](https://www.apmic.ai/) 合作開發。
 
@@ -418,7 +387,7 @@ logging:
 
 ```bibtex
 @misc{twinkle_eval,
-  author       = {Teds Lin, Liang Hsun Huang, Min Yi Chen and Dave Sung},
+  author       = {Twinkle AI community},
   title        = {Twinkle Eval: An Efficient and Accurate AI Evaluation Tool.},
   year         = {2025},
   url          = {https://github.com/ai-twinkle/Eval},
