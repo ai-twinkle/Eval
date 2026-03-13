@@ -2,6 +2,8 @@
 
 # Twinkle Eval: Efficient and Accurate AI Evaluation Tool
 
+English | [繁體中文](README.md)
+
 [![Python](https://img.shields.io/badge/python-≥3.10-blue.svg?logo=python)](https://www.python.org)
 ![GitHub license](https://img.shields.io/github/license/ai-twinkle/Eval)
 [![Website](https://img.shields.io/badge/Website-twinkleai.tw-blue?style=flat)](https://twinkleai.tw/)
