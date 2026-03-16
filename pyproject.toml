@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "twinkle-eval"
-version = "1.1.6"
+version = "1.2.0"
 description = "🌟 高效且準確的 AI 模型評測工具"
 readme = "README.md"
 license = {text = "MIT"}
@@ -58,6 +58,11 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
+math = [
+    "mathruler>=0.1.0",
+    "sympy>=1.14.0",
+    "pylatexenc>=2.10",
+]
 dev = [
     "pytest>=7.0.0",
     "pytest-cov>=4.0.0",

@@ -3,7 +3,9 @@ import os
 import random
 import re
 import time
+from math import comb
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from typing import Any, Dict, Optional, Tuple
 
 from tqdm import tqdm
 
@@ -49,17 +51,33 @@ class RateLimiter:
 
 
 class Evaluator:
-    def __init__(self, llm: LLM, evaluation_strategy: EvaluationStrategy, config: dict):
+    def __init__(
+        self,
+        llm: LLM,
+        evaluation_strategy: EvaluationStrategy,
+        config: dict,
+        eval_method: str = "",
+        system_prompt_enabled: bool = True,
+        samples_per_question: int = 1,
+        pass_k: int = 1,
+        shuffle_options: bool = False,
+        model_overrides: Optional[Dict[str, Any]] = None,
+    ):
         self.llm = llm
         self.evaluation_strategy = evaluation_strategy
         self.config = config
+        self.eval_method = eval_method or config.get("evaluation", {}).get("evaluation_method", "")
+        self.system_prompt_enabled = system_prompt_enabled
         self.rate_limiter = RateLimiter(calls_per_second=self.config["llm_api"]["api_rate_limit"])
+        self.samples_per_question = max(1, int(samples_per_question))
+        self.pass_k = max(1, int(pass_k))
+        self.shuffle_options = bool(shuffle_options)
+        self.model_overrides = model_overrides or {}
 
     def shuffle_question_options(self, question_data):
-        options = []
-        for key in ["A", "B", "C", "D"]:
-            if key in question_data:
-                options.append((key, question_data[key]))
+        # 動態偵測選項鍵（避免硬編碼 A/B/C/D）
+        option_keys = [k for k in question_data if k.isupper() and len(k) <= 2 and k not in ("A",) or k in ("A", "B", "C", "D")]
+        options = [(k, question_data[k]) for k in ["A", "B", "C", "D"] if k in question_data]
 
         if not options:
             return question_data
@@ -80,20 +98,22 @@ class Evaluator:
 
         return new_data
 
-    def evaluate_file(self, file_path: str, timestamp: str, prompt_lang: str = "zh"):
+    def evaluate_file(
+        self, file_path: str, timestamp: str, prompt_lang: str = "zh"
+    ) -> Tuple[str, Dict[str, Any], str]:
         dataset = Dataset(file_path)
-        shuffle_enabled = self.config["evaluation"].get("shuffle_options", False)
 
-        total_correct = 0
-        total_questions = 0
+        total_correct_samples = 0
+        total_samples = 0
         detailed_results = []
+        question_stats: Dict[int, Dict[str, int]] = {}  # question_id -> {"correct": n, "total": n}
 
         with ThreadPoolExecutor() as executor:
             future_tasks = []
             future_to_data = {}
 
             for idx, q in enumerate(tqdm(dataset, desc="處理題庫中")):
-                if shuffle_enabled:
+                if self.shuffle_options:
                     q = self.shuffle_question_options(q)
 
                 question_text = (
@@ -105,13 +125,21 @@ class Evaluator:
                 )
 
                 try:
-                    correct_answer = q["answer"].strip().upper()
+                    correct_answer = self.evaluation_strategy.normalize_answer(q["answer"])
                 except (KeyError, AttributeError) as e:
                     log_error(f"\n Error processing question {idx + 1}: {str(e)}")
                     continue
 
                 self.rate_limiter.wait()
-                future = executor.submit(self.llm.call, question_text, prompt_lang)
+                future = executor.submit(
+                    self.llm.call,
+                    question_text,
+                    prompt_lang,
+                    self.eval_method,
+                    self.system_prompt_enabled,
+                    self.samples_per_question,
+                    self.model_overrides,
+                )
                 future_tasks.append(future)
                 future_to_data[future] = (question_text, correct_answer, idx)
 
@@ -119,53 +147,79 @@ class Evaluator:
                 as_completed(future_tasks), total=len(future_tasks), desc="處理回應中"
             ):
                 llm_chat_completion = future.result()
-
-                message = llm_chat_completion.choices[0].message
                 usage = llm_chat_completion.usage
-                content = message.content
-                reasoning_content = getattr(message, "reasoning_content", None)
-
                 question_text, correct_answer, question_id = future_to_data[future]
 
-                # 統一推理輸出解析，兼容兩種常見情境：
-                # A. inline think tag（如 Ollama）：content 含 <think>...</think>
-                #    → 剝離 think block，只留結尾的答案部分
-                # B. content=null（如 vLLM skip_special_tokens=true）：
-                #    → fallback 至 reasoning_content
-                if content:
-                    stripped = _strip_think_blocks(content)
-                    content = stripped  # 無 think tag 時原樣返回，有則取 tag 後的部分
+                for sample_id, choice in enumerate(
+                    llm_chat_completion.choices[: self.samples_per_question]
+                ):
+                    message = choice.message
+                    content = message.content
+                    reasoning_content = getattr(message, "reasoning_content", None)
 
-                extraction_source = content if content else reasoning_content
-                if extraction_source is None:
-                    log_error(f"問題 {question_id} 的 content 與 reasoning_content 均為 null，無法提取答案")
-                predicted_answer = self.evaluation_strategy.extract_answer(extraction_source)
+                    # 統一推理輸出解析：
+                    # A. inline think tag（如 Ollama）：content 含 <think>...</think>
+                    #    → 剝離 think block，只留結尾的答案部分
+                    # B. content=null（如 vLLM skip_special_tokens=true）：
+                    #    → fallback 至 reasoning_content
+                    if content:
+                        content = _strip_think_blocks(content)
 
-                is_correct = (
-                    False
-                    if predicted_answer is None
-                    else predicted_answer.strip().upper() == correct_answer
-                )
-                if is_correct:
-                    total_correct += 1
-                total_questions += 1
+                    extraction_source = content if content else reasoning_content
+                    if extraction_source is None:
+                        log_error(
+                            f"問題 {question_id} 的 content 與 reasoning_content 均為 null，無法提取答案"
+                        )
 
-                detailed_results.append(
-                    {
-                        "question_id": question_id,
-                        "question": question_text,
-                        "correct_answer": correct_answer,
-                        "llm_output": content,
-                        "llm_reasoning_output": reasoning_content,
-                        "predicted_answer": predicted_answer,
-                        "is_correct": is_correct,
-                        "usage_completion_tokens": usage.completion_tokens,
-                        "usage_prompt_tokens": usage.prompt_tokens,
-                        "usage_total_tokens": usage.total_tokens,
-                    }
-                )
+                    predicted_raw = self.evaluation_strategy.extract_answer(extraction_source)
+                    predicted_answer = (
+                        None
+                        if predicted_raw is None
+                        else self.evaluation_strategy.normalize_answer(predicted_raw)
+                    )
 
-            accuracy = total_correct / total_questions if total_questions else 0
+                    is_correct = (
+                        False
+                        if predicted_answer is None
+                        else self.evaluation_strategy.is_correct(predicted_answer, correct_answer)
+                    )
+
+                    question_stats.setdefault(question_id, {"correct": 0, "total": 0})
+                    if is_correct:
+                        question_stats[question_id]["correct"] += 1
+                        total_correct_samples += 1
+                    question_stats[question_id]["total"] += 1
+                    total_samples += 1
+
+                    detailed_results.append(
+                        {
+                            "question_id": question_id,
+                            "sample_id": sample_id,
+                            "question": question_text,
+                            "correct_answer": correct_answer,
+                            "llm_output": content,
+                            "llm_reasoning_output": reasoning_content,
+                            "predicted_answer": predicted_answer,
+                            "is_correct": is_correct,
+                            "usage_completion_tokens": usage.completion_tokens,
+                            "usage_prompt_tokens": usage.prompt_tokens,
+                            "usage_total_tokens": usage.total_tokens,
+                        }
+                    )
+
+            accuracy = total_correct_samples / total_samples if total_samples else 0
+
+            # 計算 pass@k
+            pass_at_k_values = []
+            for stats in question_stats.values():
+                c = stats["correct"]
+                n = stats["total"]
+                k = self.pass_k
+                if n == 0 or k > n or c == 0:
+                    pass_at_k_values.append(0.0)
+                else:
+                    pass_at_k_values.append(1.0 - comb(n - c, k) / comb(n, k))
+            pass_at_k = sum(pass_at_k_values) / len(pass_at_k_values) if pass_at_k_values else 0.0
 
         results_dir = "results"
         os.makedirs(results_dir, exist_ok=True)
@@ -176,5 +230,11 @@ class Evaluator:
             for detail in detailed_results:
                 f.write(json.dumps(detail, ensure_ascii=False) + "\n")
 
-        print(f"✅ 評測完成，結果已儲存至 {results_path}")
-        return file_path, accuracy, results_path
+        print(f"✅ 評測完成，結果已追加至 {results_path}")
+        metrics = {
+            "accuracy": accuracy,
+            "pass_at_k": pass_at_k,
+            "pass_metric": f"pass@{self.pass_k}",
+            "pass_k": self.pass_k,
+        }
+        return file_path, metrics, results_path

@@ -106,7 +106,7 @@ class TestPartialDatasetFail:
             "average_std": 0.0,
         }
 
-        def side_effect(path, evaluator):
+        def side_effect(path, evaluator, **kwargs):
             if "path_a" in path:
                 raise FileNotFoundError("找不到評測檔案")
             return good_result

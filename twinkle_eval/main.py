@@ -181,7 +181,48 @@ class TwinkleEvalRunner:
             dataset_paths = [dataset_paths]
         return dataset_paths
 
-    def _evaluate_dataset(self, dataset_path: str, evaluator: Evaluator) -> Dict[str, Any]:
+    def _resolve_dataset_settings(self, dataset_path: str) -> Dict[str, Any]:
+        """解析資料集的評測設定，套用 dataset_overrides（若有）。"""
+        if self.config is None:
+            raise ConfigurationError("配置未載入")
+
+        eval_cfg = self.config["evaluation"]
+        overrides = eval_cfg.get("dataset_overrides", {})
+        dataset_abs = os.path.normpath(os.path.abspath(dataset_path))
+
+        settings: Dict[str, Any] = {
+            "evaluation_method": eval_cfg["evaluation_method"],
+            "system_prompt_enabled": eval_cfg.get("system_prompt_enabled", True),
+            "samples_per_question": eval_cfg.get("samples_per_question", 1),
+            "pass_k": eval_cfg.get("pass_k", 1),
+            "repeat_runs": eval_cfg.get("repeat_runs", 1),
+            "shuffle_options": eval_cfg.get("shuffle_options", False),
+            "model_overrides": {},
+        }
+
+        for prefix, cfg in overrides.items():
+            if not isinstance(cfg, dict):
+                continue
+            try:
+                prefix_abs = os.path.normpath(os.path.abspath(prefix))
+                if not dataset_abs.startswith(prefix_abs):
+                    continue
+            except (OSError, ValueError):
+                continue
+
+            for key in ("evaluation_method", "system_prompt_enabled", "samples_per_question",
+                        "pass_k", "repeat_runs", "shuffle_options"):
+                if key in cfg:
+                    settings[key] = cfg[key]
+            for mk in ("temperature", "top_p", "max_tokens", "frequency_penalty", "presence_penalty"):
+                if mk in cfg:
+                    settings["model_overrides"][mk] = cfg[mk]
+
+        return settings
+
+    def _evaluate_dataset(
+        self, dataset_path: str, evaluator: Evaluator, repeat_runs: int, pass_k: int
+    ) -> Dict[str, Any]:
         """評測單一資料集
 
         對指定資料集中的所有檔案進行評測，支援多次執行並統計結果
@@ -189,6 +230,8 @@ class TwinkleEvalRunner:
         Args:
             dataset_path: 資料集路徑
             evaluator: 評測器實例
+            repeat_runs: 重複執行次數
+            pass_k: pass@k 的 k 值
 
         Returns:
             Dict[str, Any]: 資料集評測結果，包含準確率統計和詳細結果
@@ -199,7 +242,6 @@ class TwinkleEvalRunner:
         log_info(f"開始評測資料集: {dataset_path}")
 
         all_files = find_all_evaluation_files(dataset_path)  # 尋找所有評測檔案
-        repeat_runs = self.config["evaluation"].get("repeat_runs", 1)  # 重複執行次數
         prompt_map = self.config["evaluation"].get("datasets_prompt_map", {})  # 資料集語言對應表
         dataset_lang = prompt_map.get(dataset_path, "zh")  # 當前資料集的語言，預設為中文
 
@@ -207,16 +249,18 @@ class TwinkleEvalRunner:
 
         for idx, file_path in enumerate(all_files):
             file_accuracies = []  # 當前檔案的準確率結果
+            file_pass_ats = []  # 當前檔案的 pass@k 結果
             file_results = []  # 當前檔案的詳細結果
 
             # 對當前檔案進行多次評測
             for run in range(repeat_runs):
                 try:
-                    file_path_result, accuracy, result_path = evaluator.evaluate_file(
+                    file_path_result, metrics, result_path = evaluator.evaluate_file(
                         file_path, f"{self.start_time}_run{run}", dataset_lang
                     )
-                    file_accuracies.append(accuracy)
-                    file_results.append((file_path_result, accuracy, result_path))
+                    file_accuracies.append(metrics["accuracy"])
+                    file_pass_ats.append(metrics["pass_at_k"])
+                    file_results.append((file_path_result, metrics, result_path))
                 except Exception as e:
                     log_error(f"評測檔案 {file_path} 失敗: {e}")
                     continue
@@ -225,14 +269,18 @@ class TwinkleEvalRunner:
             if file_accuracies:
                 mean_accuracy = np.mean(file_accuracies)  # 平均準確率
                 std_accuracy = np.std(file_accuracies) if len(file_accuracies) > 1 else 0  # 標準差
+                mean_pass_at_k = np.mean(file_pass_ats) if file_pass_ats else 0.0
 
                 results.append(
                     {
                         "file": file_path,
                         "accuracy_mean": mean_accuracy,
                         "accuracy_std": std_accuracy,
+                        "pass_at_k_mean": mean_pass_at_k,
+                        "pass_metric": f"pass@{pass_k}",
                         "individual_runs": {
                             "accuracies": file_accuracies,
+                            "pass_at_k": file_pass_ats,
                             "results": [r[2] for r in file_results],
                         },
                     }
@@ -254,11 +302,14 @@ class TwinkleEvalRunner:
         # 計算資料集統計數據
         dataset_avg_accuracy = np.mean([r["accuracy_mean"] for r in results])
         dataset_avg_std = np.mean([r["accuracy_std"] for r in results])
+        dataset_avg_pass_at_k = np.mean([r["pass_at_k_mean"] for r in results])
 
         return {
             "results": results,
             "average_accuracy": dataset_avg_accuracy,
             "average_std": dataset_avg_std,
+            "average_pass_at_k": dataset_avg_pass_at_k,
+            "pass_metric": f"pass@{pass_k}",
         }
 
     def run_evaluation(self, export_formats: Optional[List[str]] = None) -> str:
@@ -284,22 +335,49 @@ class TwinkleEvalRunner:
         dataset_paths = self._get_dataset_paths()  # 取得資料集路徑
         dataset_results = {}  # 儲存所有資料集的結果
 
-        # 建立評測器
         llm_instance = self.config["llm_instance"]
-        evaluation_strategy_instance = self.config["evaluation_strategy_instance"]
-        evaluator = Evaluator(llm_instance, evaluation_strategy_instance, self.config)
+        default_strategy = self.config["evaluation_strategy_instance"]
+        strategy_config = self.config["evaluation"].get("strategy_config", {})
+        # 快取已建立的策略，避免重複實例化
+        strategy_cache = {self.config["evaluation"]["evaluation_method"]: default_strategy}
 
         # 逐一評測每個資料集
         for dataset_path in dataset_paths:
             try:
-                dataset_result = self._evaluate_dataset(dataset_path, evaluator)
+                ds = self._resolve_dataset_settings(dataset_path)
+                eval_method = ds["evaluation_method"]
+
+                if eval_method not in strategy_cache:
+                    from .evaluation_strategies import EvaluationStrategyFactory
+                    strategy_cache[eval_method] = EvaluationStrategyFactory.create_strategy(
+                        eval_method, strategy_config
+                    )
+
+                evaluator = Evaluator(
+                    llm_instance,
+                    strategy_cache[eval_method],
+                    self.config,
+                    eval_method=eval_method,
+                    system_prompt_enabled=ds["system_prompt_enabled"],
+                    samples_per_question=ds["samples_per_question"],
+                    pass_k=ds["pass_k"],
+                    shuffle_options=ds["shuffle_options"],
+                    model_overrides=ds["model_overrides"],
+                )
+
+                dataset_result = self._evaluate_dataset(
+                    dataset_path, evaluator,
+                    repeat_runs=ds["repeat_runs"],
+                    pass_k=ds["pass_k"],
+                )
                 if not dataset_result.get("results"):
                     log_error(f"資料集 {dataset_path} 評測完成但無有效結果，跳過")
                     continue
+                dataset_result["evaluation_method"] = eval_method
                 dataset_results[dataset_path] = dataset_result
 
                 message = (
-                    f"資料集 {dataset_path} 評測完成，"
+                    f"資料集 {dataset_path} 評測完成（模式: {eval_method}），"
                     f"平均正確率: {dataset_result['average_accuracy']:.2%} "
                     f"(±{dataset_result['average_std']:.2%})"
                 )

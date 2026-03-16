@@ -101,6 +101,10 @@ class ConfigurationManager:
             "shuffle_options": False,  # 是否隨機打亂選項順序
             "datasets_prompt_map": {},  # 資料集語言對應表
             "strategy_config": {},  # 評測策略配置
+            "dataset_overrides": {},  # 資料集客製化設定
+            "samples_per_question": 1,  # 單題產生樣本數（用於 pass@k）
+            "pass_k": 1,  # pass@k 的 k 值
+            "system_prompt_enabled": True,  # 是否啟用 system prompt
         }
         for key, value in eval_defaults.items():
             if key not in self.config["evaluation"]:

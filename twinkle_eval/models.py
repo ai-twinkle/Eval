@@ -15,7 +15,15 @@ class LLM(ABC):
         self.config = config
 
     @abstractmethod
-    def call(self, question_text: str, prompt_lang: str = "zh") -> ChatCompletion:
+    def call(
+        self,
+        question_text: str,
+        prompt_lang: str = "zh",
+        eval_method: str = "",
+        system_prompt_enabled: bool = True,
+        num_samples: int = 1,
+        model_overrides: Dict[str, Any] | None = None,
+    ) -> ChatCompletion:
         """Call the LLM with a question and return the response."""
         pass
 
@@ -58,11 +66,21 @@ class OpenAIModel(LLM):
             timeout=api_config["timeout"],
         )
 
-    def _build_messages(self, question_text: str, prompt_lang: str) -> list:
+    def _build_messages(
+        self,
+        question_text: str,
+        prompt_lang: str,
+        eval_method: str,
+        system_prompt_enabled: bool,
+    ) -> list:
         """Build message list based on evaluation method."""
         eval_config = self.config["evaluation"]
+        method = eval_method or eval_config["evaluation_method"]
 
-        if eval_config["evaluation_method"] == "box":
+        # box 和 math 兩種方法都使用 system prompt
+        uses_system_prompt = system_prompt_enabled and method in {"box", "math"}
+
+        if uses_system_prompt:
             sys_prompt_cfg = eval_config.get("system_prompt", {})
             if isinstance(sys_prompt_cfg, dict):
                 sys_prompt = sys_prompt_cfg.get(prompt_lang, sys_prompt_cfg.get("zh", ""))
@@ -76,23 +94,37 @@ class OpenAIModel(LLM):
         else:
             return [{"role": "user", "content": question_text}]
 
-    def call(self, question_text: str, prompt_lang: str = "zh") -> ChatCompletion:
+    def call(
+        self,
+        question_text: str,
+        prompt_lang: str = "zh",
+        eval_method: str = "",
+        system_prompt_enabled: bool = True,
+        num_samples: int = 1,
+        model_overrides: Dict[str, Any] | None = None,
+    ) -> ChatCompletion:
         """Call the OpenAI API with the given question."""
-        messages = self._build_messages(question_text, prompt_lang)
+        messages = self._build_messages(question_text, prompt_lang, eval_method, system_prompt_enabled)
         model_config = self.config["model"]
+        overrides = model_overrides or {}
 
         payload = {
             "model": model_config["name"],
-            "temperature": model_config["temperature"],
-            "top_p": model_config["top_p"],
-            "max_tokens": model_config["max_tokens"],
+            "temperature": overrides.get("temperature", model_config["temperature"]),
+            "top_p": overrides.get("top_p", model_config["top_p"]),
+            "max_tokens": overrides.get("max_tokens", model_config["max_tokens"]),
             "messages": messages,
         }
+
+        if num_samples > 1:
+            payload["n"] = num_samples
 
         # Add optional parameters if they exist
         optional_params = ["frequency_penalty", "presence_penalty"]
         for param in optional_params:
-            if param in model_config:
+            if param in overrides:
+                payload[param] = overrides[param]
+            elif param in model_config:
                 payload[param] = model_config[param]
 
         if model_config["extra_body"]:

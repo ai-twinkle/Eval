@@ -89,7 +89,7 @@ class TestContentNullFallback:
 
         with patch("twinkle_eval.evaluators.os.makedirs"), \
              patch("twinkle_eval.evaluators.os.path.join", side_effect=patched_join):
-            _, accuracy, _ = evaluator.evaluate_file(dataset_path, "test_run0")
+            _, _metrics, _ = evaluator.evaluate_file(dataset_path, "test_run0")
 
         # 從 JSONL 讀取 predicted_answer
         with open(jsonl_path) as f:
@@ -175,6 +175,6 @@ class TestContentNullFallback:
 
         with patch("twinkle_eval.evaluators.os.makedirs"), \
              patch("twinkle_eval.evaluators.os.path.join", side_effect=patched_join):
-            _, accuracy, _ = evaluator.evaluate_file(dataset_path, "test2")
+            _, metrics, _ = evaluator.evaluate_file(dataset_path, "test2")
 
-        assert accuracy == 0.0
+        assert metrics["accuracy"] == 0.0

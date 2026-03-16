@@ -23,7 +23,7 @@
 授權：MIT License
 """
 
-__version__ = "1.1.6"
+__version__ = "1.2.0"
 __author__ = "Twinkle AI Team"
 __license__ = "MIT"
 
@@ -34,6 +34,7 @@ from .evaluation_strategies import (
     CustomRegexStrategy,
     EvaluationStrategy,
     EvaluationStrategyFactory,
+    MathExtractionStrategy,
     PatternMatchingStrategy,
 )
 from .evaluators import Evaluator, RateLimiter
@@ -71,6 +72,7 @@ __all__ = [
     "PatternMatchingStrategy",
     "BoxExtractionStrategy",
     "CustomRegexStrategy",
+    "MathExtractionStrategy",
     "EvaluationStrategyFactory",
     # 工具函數
     "load_config",
