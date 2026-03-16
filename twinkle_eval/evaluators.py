@@ -138,8 +138,8 @@ class Evaluator:
         os.makedirs(results_dir, exist_ok=True)
         results_path = os.path.join(results_dir, f"eval_results_{timestamp}.jsonl")
 
-        # 將每個 detail 項目寫入 JSONL 檔案
-        with open(results_path, "w", encoding="utf-8") as f:
+        # 將每個 detail 項目寫入 JSONL 檔案（使用 'a' 避免多檔評測時覆蓋先前結果）
+        with open(results_path, "a", encoding="utf-8") as f:
             for detail in detailed_results:
                 f.write(json.dumps(detail, ensure_ascii=False) + "\n")
 
