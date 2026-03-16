@@ -2,6 +2,7 @@ import json
 import os
 import random
 import re
+import socket
 import time
 from math import comb
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -13,6 +14,12 @@ from .dataset import Dataset
 from .evaluation_strategies import EvaluationStrategy
 from .logger import log_error
 from .models import LLM
+
+
+def _get_node_id() -> str:
+    """取得當前節點識別碼，優先使用 SLURM_NODEID，否則回退至 node0。"""
+    slurm_node = os.environ.get("SLURM_NODEID")
+    return slurm_node if slurm_node is not None else "0"
 
 
 _THINK_TAG_PAIRS = [
@@ -223,7 +230,15 @@ class Evaluator:
 
         results_dir = "results"
         os.makedirs(results_dir, exist_ok=True)
-        results_path = os.path.join(results_dir, f"eval_results_{timestamp}.jsonl")
+
+        # 分散式模式下，每個節點/rank 寫入獨立的 shard 檔案，避免並行寫入衝突
+        node_id = _get_node_id()
+        rank = self.model_overrides.get("_rank", 0)  # 由 main.py 透過 model_overrides 傳入
+        if node_id != "0" or rank != 0:
+            shard_suffix = f"_node{node_id}_rank{rank}"
+        else:
+            shard_suffix = ""
+        results_path = os.path.join(results_dir, f"eval_results_{timestamp}{shard_suffix}.jsonl")
 
         # 將每個 detail 項目寫入 JSONL 檔案（使用 'a' 避免多檔評測時覆蓋先前結果）
         with open(results_path, "a", encoding="utf-8") as f:

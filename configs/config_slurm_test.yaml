@@ -1,0 +1,66 @@
+llm_api:
+  base_url: "PLACEHOLDER_BASE_URL"
+  api_key: "dummy"
+  disable_ssl_verify: false
+  api_rate_limit: -1
+  max_retries: 5
+  timeout: 1200
+
+model:
+  name: "PLACEHOLDER_MODEL_NAME"
+  temperature: 0.0
+  top_p: 1.0
+  max_tokens: PLACEHOLDER_MAX_TOKENS
+  frequency_penalty: 0.0
+  presence_penalty: 0.0
+  extra_body:
+  thinking_start_tag: PLACEHOLDER_THINKING_START_TAG
+  thinking_end_tag: PLACEHOLDER_THINKING_END_TAG
+
+evaluation:
+  dataset_paths:
+    - "PLACEHOLDER_DATASET_DIR/lianghsun__tw-legal-benchmark-v1/"
+  evaluation_method: "box"
+  system_prompt:
+    zh: |
+      使用者將提供一個題目，並附上選項 A、B、C、D
+      請仔細閱讀題目要求，根據題意選出最符合的選項，並將選項以以下格式輸出：
+      \box{選項}
+      請確保僅將選項包含在 { } 中，否則將不計算為有效答案。
+      務必精確遵循輸出格式，避免任何多餘內容或錯誤格式。
+    en: |
+      The user will provide a question along with options A, B, C, and D.
+      Please read the question carefully and select the option that best fits the requirements.
+      Output the selected option in the following format:
+      \box{Option}
+      Make sure to include only the option within the curly braces; otherwise, it will not be considered a valid answer.
+      Strictly follow the output format and avoid any extra content or incorrect formatting.
+  datasets_prompt_map: {}
+  repeat_runs: 1
+  shuffle_options: false
+
+environment:
+  gpu_info:
+    model: "PLACEHOLDER_GPU_MODEL"
+    count: PLACEHOLDER_GPU_COUNT
+    memory_gb: PLACEHOLDER_GPU_MEMORY_GB
+    cuda_version: "PLACEHOLDER_CUDA_VERSION"
+    driver_version: "PLACEHOLDER_DRIVER_VERSION"
+  parallel_config:
+    tp_size: PLACEHOLDER_TP_SIZE
+    pp_size: PLACEHOLDER_PP_SIZE
+    max_model_len: PLACEHOLDER_MAX_MODEL_LEN
+  system_info:
+    framework: "vLLM"
+    python_version: "PLACEHOLDER_PYTHON_VERSION"
+    torch_version: "PLACEHOLDER_TORCH_VERSION"
+    node_count: PLACEHOLDER_NNODES
+
+logging:
+  level: "INFO"
+
+google_services:
+  google_drive:
+    enabled: false
+  google_sheets:
+    enabled: false

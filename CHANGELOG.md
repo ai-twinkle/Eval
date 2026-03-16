@@ -7,6 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.3.0] - 2026-03-16
+
+### Added
+- Slurm 多節點分散式評測支援：每個節點/rank 輸出獨立的 shard JSONL，避免並行寫入衝突
+- `twinkle-eval --finalize-results <timestamp>`：自動合併分散式碎片並重新計算評測指標
+- `twinkle-eval --hf-repo-id` / `--hf-variant`：評測完成後自動上傳結果至 Hugging Face dataset repo
+- `pip install twinkle-eval[slurm]` optional extras：`huggingface-hub` 不再強制安裝；未安裝時呼叫上傳功能會拋出清楚的提示訊息
+- `dataset.py`：自動正規化 MMLU HuggingFace 格式（`choices` list + 整數 `answer`）為 A/B/C/D 具名欄位格式，支援超過 4 個選項
+- `twinkle_eval/finalize.py`：碎片合併邏輯（含備援路徑、清理機制）
+- `twinkle_eval/hf_uploader.py`：HuggingFace Dataset 上傳服務
+- `scripts/`：可直接 sbatch 的 Slurm 腳本（測試版與完整生產版）
+- `configs/`：Slurm 評測設定範例
+- `SLURM_README.md`：分散式評測操作說明
+- `distributed` config 區段：自動從 `WORLD_SIZE`/`RANK` 環境變數讀取分散式設定
+
 ## [1.2.0] - 2026-03-16
 
 ### Added

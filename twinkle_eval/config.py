@@ -1,3 +1,4 @@
+import os
 from typing import Any, Dict
 
 import yaml
@@ -109,6 +110,17 @@ class ConfigurationManager:
         for key, value in eval_defaults.items():
             if key not in self.config["evaluation"]:
                 self.config["evaluation"][key] = value
+
+        # 設定分散式評測預設值（從環境變數讀取，單機時保持 rank=0, world_size=1）
+        world_size = int(os.environ.get("WORLD_SIZE", "1"))
+        rank = int(os.environ.get("RANK", "0"))
+        dist_defaults = {"world_size": world_size, "rank": rank}
+        if "distributed" not in self.config:
+            self.config["distributed"] = dist_defaults
+        else:
+            for key, value in dist_defaults.items():
+                if key not in self.config["distributed"]:
+                    self.config["distributed"][key] = value
 
         # 設定預設環境配置
         if "environment" not in self.config:

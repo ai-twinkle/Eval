@@ -563,6 +563,29 @@ HuggingFace 資料集下載:
         help="將 JSON 結果檔案轉換為 HTML 格式",
     )
 
+    parser.add_argument(
+        "--finalize-results",
+        metavar="TIMESTAMP",
+        help=(
+            "後處理指定時間戳記的評測結果：若找到分散式碎片則自動合併，"
+            "若為單節點最終結果則直接上傳 (可搭配 --hf-repo-id)"
+        ),
+    )
+
+    # HuggingFace 上傳參數
+    parser.add_argument(
+        "--hf-repo-id",
+        help=(
+            "Hugging Face dataset repo ID，用於上傳結果 "
+            "(格式: namespace/repo-name，repo-name 必須以 -logs-and-scores 結尾)"
+        ),
+    )
+
+    parser.add_argument(
+        "--hf-variant",
+        help="結果變體名稱（例如: low, medium, high），用於區分不同評測條件",
+    )
+
     # Benchmark 相關命令
     parser.add_argument(
         "--benchmark",
@@ -692,6 +715,19 @@ def main() -> int:
             return convert_json_to_html(args.convert_to_html)
         except Exception as e:
             print(f"❌ 轉換失敗: {e}")
+            return 1
+
+    # 分散式結果合併與 HuggingFace 上傳
+    if args.finalize_results:
+        try:
+            from .finalize import finalize_results
+            return finalize_results(
+                args.finalize_results,
+                getattr(args, "hf_repo_id", None),
+                getattr(args, "hf_variant", None),
+            )
+        except Exception as e:
+            print(f"❌ 合併結果失敗: {e}")
             return 1
 
     # Benchmark 命令

@@ -6,6 +6,7 @@
 
 import json
 import os
+import string
 from pathlib import Path
 from typing import Dict, Optional
 
@@ -18,6 +19,66 @@ from datasets import get_dataset_config_names, get_dataset_split_names, load_dat
 from .logger import log_error, log_info, log_warning
 
 
+def _index_to_label(idx: int) -> str:
+    """將 0-based 索引轉換為 Excel 風格的大寫字母標籤（A…Z、AA…AZ、BA…）。"""
+    letters = []
+    while True:
+        idx, rem = divmod(idx, 26)
+        letters.append(string.ascii_uppercase[rem])
+        if idx == 0:
+            break
+        idx -= 1
+    return "".join(reversed(letters))
+
+
+def _normalize_record(record: dict) -> dict:
+    """將 choices-list 格式正規化為具名字母鍵格式。
+
+    支援兩種輸入格式：
+    1. 整數索引 answer（MMLU HuggingFace 格式）：
+       {"question": "...", "choices": [...], "answer": 1}
+       → {"question": "...", "A": "opt0", "B": "opt1", ..., "answer": "B"}
+    2. 字母 answer（choices 仍為 list 但 answer 已是字母）：
+       {"question": "...", "choices": [...], "answer": "B"}
+       → {"question": "...", "A": "opt0", ..., "answer": "B"}
+
+    若 record 已是具名字母鍵格式則直接回傳（向下相容）。
+    """
+    choices = record.get("choices")
+    answer = record.get("answer")
+
+    if not (
+        hasattr(choices, "__iter__")
+        and not isinstance(choices, (str, bytes, dict))
+        and len(choices) >= 2
+    ):
+        return record
+
+    choices = list(choices)
+    labels = [_index_to_label(i) for i in range(len(choices))]
+
+    try:
+        idx = int(answer)
+    except (TypeError, ValueError):
+        idx = None
+
+    if idx is not None:
+        if not (0 <= idx < len(choices)):
+            return record
+        answer_letter = labels[idx]
+    else:
+        answer_str = str(answer).strip().upper()
+        if answer_str not in labels:
+            return record
+        answer_letter = answer_str
+
+    normalized = {k: v for k, v in record.items() if k not in ("choices", "answer")}
+    for label, text in zip(labels, choices):
+        normalized[label] = text
+    normalized["answer"] = answer_letter
+    return normalized
+
+
 class Dataset:
     """資料集類別 - 負責載入和管理單一資料集檔案
 
@@ -27,15 +88,21 @@ class Dataset:
     - Parquet: Apache Parquet 格式
     - Arrow: Apache Arrow 格式
     - CSV/TSV: 逗號或制表符分隔的文字檔
+
+    自動將 MMLU HuggingFace 格式（choices + 整數 answer）正規化為 A/B/C/D 格式。
     """
 
-    def __init__(self, file_path: str):
+    def __init__(self, file_path: str, node_id: Optional[str] = None, rank: Optional[int] = None):
         """初始化資料集
 
         Args:
             file_path: 資料集檔案路徑
+            node_id: SLURM 節點 ID（分散式評測用，可選）
+            rank: 分散式 rank（可選）
         """
         self.file_path = file_path
+        self.node_id = node_id
+        self.rank = rank
         self.data = self._load_data()
 
     def _load_data(self):
@@ -76,7 +143,12 @@ class Dataset:
             else:
                 raise ValueError(f"不支援的檔案格式: {ext}")
 
-            log_info(f"成功讀取檔案: {self.file_path}，共 {len(data)} 題")
+            # 正規化：將 choices-list + 整數 answer 格式轉為 A/B/C/D 具名欄位格式
+            data = [_normalize_record(r) for r in data]
+            if self.node_id is not None and self.rank is not None:
+                log_info(f"[節點 {self.node_id} | Rank {self.rank}] 成功讀取: {self.file_path}，共 {len(data)} 題")
+            else:
+                log_info(f"成功讀取檔案: {self.file_path}，共 {len(data)} 題")
             return data
         except Exception as e:
             log_error(f"讀取資料錯誤: {e}")
