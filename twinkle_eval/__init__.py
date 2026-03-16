@@ -34,6 +34,7 @@ from .evaluation_strategies import (
     CustomRegexStrategy,
     EvaluationStrategy,
     EvaluationStrategyFactory,
+    LogitEvaluationStrategy,
     MathExtractionStrategy,
     PatternMatchingStrategy,
 )
@@ -73,6 +74,7 @@ __all__ = [
     "BoxExtractionStrategy",
     "CustomRegexStrategy",
     "MathExtractionStrategy",
+    "LogitEvaluationStrategy",
     "EvaluationStrategyFactory",
     # 工具函數
     "load_config",

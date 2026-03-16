@@ -32,6 +32,18 @@ class LLM(ABC):
         """Validate the configuration for this LLM."""
         pass
 
+    def score_continuation(self, context: str, continuation: str) -> float:
+        """計算 log P(continuation | context)，用於 logit 評測策略。
+
+        透過 completions API 的 echo 模式取得 context+continuation 的 token logprobs，
+        並回傳 continuation 部分的對數機率加總。
+        子類別應覆寫此方法以提供正確實作；預設拋出 NotImplementedError。
+        """
+        raise NotImplementedError(
+            f"{self.__class__.__name__} 尚未實作 score_continuation()，"
+            "無法使用 logit 評測策略。"
+        )
+
 
 class OpenAIModel(LLM):
     """OpenAI-compatible LLM implementation."""
@@ -136,6 +148,55 @@ class OpenAIModel(LLM):
         except Exception as e:
             log_error(f"LLM API 錯誤: {e}")
             raise e
+
+    def score_continuation(self, context: str, continuation: str) -> float:
+        """計算 log P(continuation | context)，用於 logit 評測策略。
+
+        使用 /v1/completions 端點的 echo 模式：將 context + continuation 作為 prompt
+        傳入，取得所有 token 的 logprob，再加總 continuation 部分的 log-likelihood。
+        vLLM、llama.cpp、OpenAI (legacy completions) 均支援此功能。
+
+        Args:
+            context:      題目 context，通常以 "\\nAnswer:" 結尾。
+            continuation: 要評分的選項文字，如 " A"、" B"（含 leading space，與 lm-harness 一致）。
+
+        Returns:
+            continuation 部分的 log-likelihood（越高表示模型越傾向該選項）。
+            若 API 不支援或發生錯誤，回傳 float("-inf")。
+        """
+        model_config = self.config["model"]
+        full_prompt = context + continuation
+
+        try:
+            response = self.client.completions.create(
+                model=model_config["name"],
+                prompt=full_prompt,
+                max_tokens=0,
+                echo=True,
+                logprobs=1,
+            )
+            token_logprobs = response.choices[0].logprobs.token_logprobs
+            tokens = response.choices[0].logprobs.tokens
+
+            if not token_logprobs or not tokens:
+                return float("-inf")
+
+            # 找出 continuation 開始的字元位置，累加對應 token 的 logprob
+            context_char_len = len(context)
+            cumulative = 0
+            logprob_sum = 0.0
+            found = False
+            for token, lp in zip(tokens, token_logprobs):
+                if cumulative >= context_char_len and lp is not None:
+                    logprob_sum += lp
+                    found = True
+                cumulative += len(token)
+
+            return logprob_sum if found else float("-inf")
+
+        except Exception as e:
+            log_error(f"score_continuation 失敗（模型: {model_config['name']}）: {e}")
+            return float("-inf")
 
 
 class LLMFactory:

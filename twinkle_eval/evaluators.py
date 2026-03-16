@@ -116,74 +116,74 @@ class Evaluator:
         question_stats: Dict[int, Dict[str, int]] = {}  # question_id -> {"correct": n, "total": n}
 
         with ThreadPoolExecutor() as executor:
-            future_tasks = []
-            future_to_data = {}
+            if self.evaluation_strategy.uses_logprobs:
+                # ── logit 路徑 ────────────────────────────────────────────────
+                # 每題對每個選項各送一個 score_continuation future，全部並行執行。
+                # 這是我們相對於 lm-evaluation-harness（逐選項序列計算）的核心優勢。
+                question_records = []
 
-            for idx, q in enumerate(tqdm(dataset, desc="處理題庫中")):
-                if self.shuffle_options:
-                    q = self.shuffle_question_options(q)
+                for idx, q in enumerate(tqdm(dataset, desc="處理題庫中")):
+                    if self.shuffle_options:
+                        q = self.shuffle_question_options(q)
 
-                question_text = (
-                    q["question"]
-                    + "\n"
-                    + "\n".join(
-                        [f"{k}: {v}" for k, v in q.items() if k not in ["question", "answer"]]
+                    option_keys = sorted(
+                        [k for k in q if isinstance(k, str) and k.isupper() and len(k) <= 2]
                     )
-                )
+                    question_text = (
+                        q["question"]
+                        + "\n"
+                        + "\n".join(
+                            [f"{k}: {v}" for k, v in q.items() if k not in ["question", "answer"]]
+                        )
+                    )
+                    # context 以 "\nAnswer:" 結尾，與 lm-harness MMLU template 一致
+                    logit_context = question_text + "\nAnswer:"
 
-                try:
-                    correct_answer = self.evaluation_strategy.normalize_answer(q["answer"])
-                except (KeyError, AttributeError) as e:
-                    log_error(f"\n Error processing question {idx + 1}: {str(e)}")
-                    continue
+                    try:
+                        correct_answer = self.evaluation_strategy.normalize_answer(q["answer"])
+                    except (KeyError, AttributeError) as e:
+                        log_error(f"\n Error processing question {idx + 1}: {str(e)}")
+                        continue
 
-                self.rate_limiter.wait()
-                future = executor.submit(
-                    self.llm.call,
-                    question_text,
-                    prompt_lang,
-                    self.eval_method,
-                    self.system_prompt_enabled,
-                    self.samples_per_question,
-                    self.model_overrides,
-                )
-                future_tasks.append(future)
-                future_to_data[future] = (question_text, correct_answer, idx)
-
-            for future in tqdm(
-                as_completed(future_tasks), total=len(future_tasks), desc="處理回應中"
-            ):
-                llm_chat_completion = future.result()
-                usage = llm_chat_completion.usage
-                question_text, correct_answer, question_id = future_to_data[future]
-
-                for sample_id, choice in enumerate(
-                    llm_chat_completion.choices[: self.samples_per_question]
-                ):
-                    message = choice.message
-                    content = message.content
-                    reasoning_content = getattr(message, "reasoning_content", None)
-
-                    # 統一推理輸出解析：
-                    # A. inline think tag（如 Ollama）：content 含 <think>...</think>
-                    #    → 剝離 think block，只留結尾的答案部分
-                    # B. content=null（如 vLLM skip_special_tokens=true）：
-                    #    → fallback 至 reasoning_content
-                    if content:
-                        content = _strip_think_blocks(content)
-
-                    extraction_source = content if content else reasoning_content
-                    if extraction_source is None:
-                        log_error(
-                            f"問題 {question_id} 的 content 與 reasoning_content 均為 null，無法提取答案"
+                    # 對每個選項提交一個 score_continuation future（全部並行）
+                    choice_futures: Dict[str, Any] = {}
+                    for choice_key in option_keys:
+                        self.rate_limiter.wait()
+                        choice_futures[choice_key] = executor.submit(
+                            self.llm.score_continuation,
+                            logit_context,
+                            f" {choice_key}",  # leading space，與 lm-harness 一致
                         )
 
-                    predicted_raw = self.evaluation_strategy.extract_answer(extraction_source)
-                    predicted_answer = (
-                        None
-                        if predicted_raw is None
-                        else self.evaluation_strategy.normalize_answer(predicted_raw)
-                    )
+                    question_records.append({
+                        "idx": idx,
+                        "question_text": question_text,
+                        "correct_answer": correct_answer,
+                        "option_keys": option_keys,
+                        "choice_futures": choice_futures,
+                    })
+
+                # 收集結果：所有 future 已並行執行，此處依序取值
+                for record in tqdm(question_records, desc="處理回應中"):
+                    question_id = record["idx"]
+                    question_text = record["question_text"]
+                    correct_answer = record["correct_answer"]
+                    option_keys = record["option_keys"]
+
+                    # 取得各選項的 log-likelihood 分數
+                    scores: Dict[str, float] = {
+                        k: f.result() for k, f in record["choice_futures"].items()
+                    }
+
+                    # 選出 log-likelihood 最高的選項
+                    if scores and any(v > float("-inf") for v in scores.values()):
+                        predicted_raw = max(scores, key=scores.get)
+                        predicted_answer: Optional[str] = self.evaluation_strategy.normalize_answer(
+                            predicted_raw
+                        )
+                    else:
+                        predicted_answer = None
+                        log_error(f"問題 {question_id} 的所有選項均無法取得 log-likelihood")
 
                     is_correct = (
                         False
@@ -198,8 +198,109 @@ class Evaluator:
                     question_stats[question_id]["total"] += 1
                     total_samples += 1
 
-                    detailed_results.append(
-                        {
+                    detailed_results.append({
+                        "question_id": question_id,
+                        "sample_id": 0,
+                        "question": question_text,
+                        "correct_answer": correct_answer,
+                        "llm_output": None,
+                        "llm_reasoning_output": None,
+                        "predicted_answer": predicted_answer,
+                        "is_correct": is_correct,
+                        "logprob_scores": scores,
+                        "usage_completion_tokens": None,
+                        "usage_prompt_tokens": None,
+                        "usage_total_tokens": None,
+                    })
+
+            else:
+                # ── 文字解析路徑 ──────────────────────────────────────────────
+                future_tasks = []
+                future_to_data: Dict[Any, Any] = {}
+
+                for idx, q in enumerate(tqdm(dataset, desc="處理題庫中")):
+                    if self.shuffle_options:
+                        q = self.shuffle_question_options(q)
+
+                    option_keys = sorted(
+                        [k for k in q if isinstance(k, str) and k.isupper() and len(k) <= 2]
+                    )
+                    question_text = (
+                        q["question"]
+                        + "\n"
+                        + "\n".join(
+                            [f"{k}: {v}" for k, v in q.items() if k not in ["question", "answer"]]
+                        )
+                    )
+
+                    try:
+                        correct_answer = self.evaluation_strategy.normalize_answer(q["answer"])
+                    except (KeyError, AttributeError) as e:
+                        log_error(f"\n Error processing question {idx + 1}: {str(e)}")
+                        continue
+
+                    self.rate_limiter.wait()
+                    future = executor.submit(
+                        self.llm.call,
+                        question_text,
+                        prompt_lang,
+                        self.eval_method,
+                        self.system_prompt_enabled,
+                        self.samples_per_question,
+                        self.model_overrides,
+                    )
+                    future_tasks.append(future)
+                    future_to_data[future] = (question_text, correct_answer, idx, option_keys)
+
+                for future in tqdm(
+                    as_completed(future_tasks), total=len(future_tasks), desc="處理回應中"
+                ):
+                    llm_chat_completion = future.result()
+                    usage = llm_chat_completion.usage
+                    question_text, correct_answer, question_id, option_keys = future_to_data[future]
+
+                    for sample_id, choice in enumerate(
+                        llm_chat_completion.choices[: self.samples_per_question]
+                    ):
+                        message = choice.message
+                        content = message.content
+                        reasoning_content = getattr(message, "reasoning_content", None)
+
+                        # 統一推理輸出解析：
+                        # A. inline think tag（如 Ollama）：content 含 <think>...</think>
+                        #    → 剝離 think block，只留結尾的答案部分
+                        # B. content=null（如 vLLM skip_special_tokens=true）：
+                        #    → fallback 至 reasoning_content
+                        if content:
+                            content = _strip_think_blocks(content)
+
+                        extraction_source = content if content else reasoning_content
+                        if extraction_source is None:
+                            log_error(
+                                f"問題 {question_id} 的 content 與 reasoning_content 均為 null，無法提取答案"
+                            )
+
+                        predicted_raw = self.evaluation_strategy.extract_answer(extraction_source)
+                        predicted_answer = (
+                            None
+                            if predicted_raw is None
+                            else self.evaluation_strategy.normalize_answer(predicted_raw)
+                        )
+
+                        is_correct = (
+                            False
+                            if predicted_answer is None
+                            else self.evaluation_strategy.is_correct(predicted_answer, correct_answer)
+                        )
+
+                        question_stats.setdefault(question_id, {"correct": 0, "total": 0})
+                        if is_correct:
+                            question_stats[question_id]["correct"] += 1
+                            total_correct_samples += 1
+                        question_stats[question_id]["total"] += 1
+                        total_samples += 1
+
+                        detailed_results.append({
                             "question_id": question_id,
                             "sample_id": sample_id,
                             "question": question_text,
@@ -211,8 +312,7 @@ class Evaluator:
                             "usage_completion_tokens": usage.completion_tokens,
                             "usage_prompt_tokens": usage.prompt_tokens,
                             "usage_total_tokens": usage.total_tokens,
-                        }
-                    )
+                        })
 
             accuracy = total_correct_samples / total_samples if total_samples else 0
 

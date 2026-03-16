@@ -17,6 +17,9 @@ class EvaluationStrategy(ABC):
     所有評測策略都必須從這個類別繼承，並實現必要的抽象方法
     """
 
+    #: 若為 True，表示此策略使用 logprobs 而非生成文字；Evaluator 會走 logit 路徑
+    uses_logprobs: bool = False
+
     def __init__(self, config: Optional[Dict[str, Any]] = None):
         self.config = config or {}
 
@@ -283,6 +286,59 @@ class MathExtractionStrategy(EvaluationStrategy):
         return parts if len(parts) > 1 else []
 
 
+class LogitEvaluationStrategy(EvaluationStrategy):
+    """Log-likelihood (logit) 評測策略
+
+    不解析生成文字，而是比較各選項標籤在第一個 token 的 log probability，
+    選出機率最高者作為答案。適用於選擇題評測，更接近 lm-evaluation-harness 的做法。
+
+    需要 API 支援 logprobs 參數（vLLM、OpenAI 等均支援）。
+    """
+
+    uses_logprobs: bool = True
+
+    def get_strategy_name(self) -> str:
+        return "logit"
+
+    def extract_answer(self, llm_output: str) -> Optional[str]:
+        # logit 策略走 logprobs 路徑，此方法不會被 Evaluator 呼叫
+        return None
+
+    def extract_answer_from_logprobs(
+        self,
+        top_logprobs: List[Any],
+        option_keys: List[str],
+    ) -> Optional[str]:
+        """從第一個 token 的 top_logprobs 中，選出 option_keys 裡 log probability 最高的選項。
+
+        Args:
+            top_logprobs: choices[0].logprobs.content[0].top_logprobs，每項有 .token 與 .logprob。
+            option_keys:  有效選項標籤清單，如 ["A", "B", "C", "D"]。
+
+        Returns:
+            log probability 最高的選項標籤；若所有選項均不在 top_logprobs 內則回傳 None。
+        """
+        if not top_logprobs or not option_keys:
+            return None
+
+        # 建立 token → logprob 映射（相同 token 取最高值）
+        token_to_logprob: Dict[str, float] = {}
+        for lp in top_logprobs:
+            token = lp.token.strip()
+            if token not in token_to_logprob or lp.logprob > token_to_logprob[token]:
+                token_to_logprob[token] = lp.logprob
+
+        best_option: Optional[str] = None
+        best_logprob: float = float("-inf")
+        for key in option_keys:
+            logprob = token_to_logprob.get(key, float("-inf"))
+            if logprob > best_logprob:
+                best_logprob = logprob
+                best_option = key
+
+        return best_option
+
+
 class EvaluationStrategyFactory:
     """Factory class for creating evaluation strategy instances."""
 
@@ -291,6 +347,7 @@ class EvaluationStrategyFactory:
         "box": BoxExtractionStrategy,
         "custom_regex": CustomRegexStrategy,
         "math": MathExtractionStrategy,
+        "logit": LogitEvaluationStrategy,
     }
 
     @classmethod
