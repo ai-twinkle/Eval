@@ -13,16 +13,22 @@ from .logger import log_error
 from .models import LLM
 
 
-_THINK_END_TAGS = ["</think>", "</reason>", "</reasoning>"]
+_THINK_TAG_PAIRS = [
+    ("<think>", "</think>"),
+    ("<reason>", "</reason>"),
+    ("<reasoning>", "</reasoning>"),
+]
 
 
 def _strip_think_blocks(text: str) -> str:
-    """取最後一個推理結尾 tag 之後的內容，兼容開頭 tag 被截斷的情況。"""
+    """剝離完整的推理 tag 對（需同時有開頭與結尾 tag），取結尾 tag 之後的內容。
+    若 tag 不完整（如只有結尾 tag），視為格式不合格，原樣返回。
+    """
     lower = text.lower()
-    for tag in _THINK_END_TAGS:
-        idx = lower.rfind(tag)
-        if idx != -1:
-            return text[idx + len(tag):].strip()
+    for start_tag, end_tag in _THINK_TAG_PAIRS:
+        if start_tag in lower and end_tag in lower:
+            idx = lower.rfind(end_tag)
+            return text[idx + len(end_tag):].strip()
     return text
 
 

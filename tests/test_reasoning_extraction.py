@@ -116,14 +116,17 @@ class TestInlineThinkTag:
         assert predicted == "B", f"應從 </think> 後提取答案，got: {predicted}"
         assert is_correct is True
 
-    def test_truncated_start_tag_handled(self, tmp_path):
-        """開頭 <think> 被截斷，只剩 </think>Answer: B → 仍能正確提取"""
+    def test_truncated_start_tag_not_stripped(self, tmp_path):
+        """開頭 <think> 被截斷，只剩 </think> → 格式不合格，原樣保留不剝離"""
         evaluator = _make_evaluator()
+        # 只有結尾 tag，沒有開頭 tag → 不剝離，直接對整段 content 提取
+        # 整段含 "答案：B" 仍可被 PatternMatchingStrategy 匹配
         completion = _make_completion(
             content="台灣現行法律規定台北為首都。</think>答案：B",
         )
         predicted, is_correct = _run_single(evaluator, completion, tmp_path)
-        assert predicted == "B", f"截斷 start tag 應仍可提取，got: {predicted}"
+        # 不剝離，但 PatternMatchingStrategy 仍可在原始 content 中找到 "答案：B"
+        assert predicted == "B"
         assert is_correct is True
 
     def test_reason_tag_stripped(self, tmp_path):
