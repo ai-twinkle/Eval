@@ -47,6 +47,20 @@ evaluation:
     en: "Please solve the problem step by step. Present your final answer in \\boxed{answer} format."
 ```
 
+### MMLU-Pro（多選項，A–J）
+
+```yaml
+# config.yaml
+evaluation:
+  dataset_paths:
+    - "datasets/example/mmlu_pro/"
+  evaluation_method: box
+  system_prompt:
+    en: "Please read the question carefully and select the best answer. Present your final answer in the format \\boxed{answer}, e.g., \\boxed{A}."
+  datasets_prompt_map:
+    "datasets/example/mmlu_pro/": "en"
+```
+
 ### 混合模式（dataset_overrides）
 
 ```yaml
