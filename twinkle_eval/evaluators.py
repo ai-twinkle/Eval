@@ -106,7 +106,13 @@ class Evaluator:
                 reasoning_content = getattr(message, "reasoning_content", None)
 
                 question_text, correct_answer, question_id = future_to_data[future]
-                predicted_answer = self.evaluation_strategy.extract_answer(content)
+
+                # content 為 null 或空字串時（例如 ACE-1 在 skip_special_tokens=true 情況下），
+                # fallback 至 reasoning_content 進行答案提取
+                extraction_source = content if content else reasoning_content
+                if extraction_source is None:
+                    log_error(f"問題 {question_id} 的 content 與 reasoning_content 均為 null，無法提取答案")
+                predicted_answer = self.evaluation_strategy.extract_answer(extraction_source)
 
                 is_correct = (
                     False
