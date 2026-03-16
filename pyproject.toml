@@ -11,14 +11,18 @@ license = {text = "MIT"}
 authors = [
     {name = "Teds Lin", email = "tedslin@gmail.com"},
     {name = "Liang Hsun Huang", email = "lianghsunh@gmail.com"},
+    {name = "Thomas Liang", email = "thliang01@gmail.com"},
     {name = "Min Yi Chen", email = "cyc00518@icloud.com"},
     {name = "Dave Sung", email = "code@k1dav.fun"},
+    {name = "Ren-Di Wu"},
 ]
 maintainers = [
     {name = "Teds Lin", email = "tedslin@gmail.com"},
     {name = "Liang Hsun Huang", email = "lianghsunh@gmail.com"},
+    {name = "Thomas Liang", email = "thliang01@gmail.com"},
     {name = "Min Yi Chen", email = "cyc00518@icloud.com"},
     {name = "Dave Sung", email = "code@k1dav.fun"},
+    {name = "Ren-Di Wu"},
 ]
 keywords = [
     "ai", "llm", "evaluation", "benchmark", "machine-learning", 
