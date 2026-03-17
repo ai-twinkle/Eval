@@ -23,7 +23,7 @@
 授權：MIT License
 """
 
-__version__ = "1.4.0"
+__version__ = "1.4.2"
 __author__ = "Twinkle AI Team"
 __license__ = "MIT"
 
