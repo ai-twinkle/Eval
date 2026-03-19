@@ -1,10 +1,7 @@
-"""自定義異常類別 - 向下相容的重新匯出層。
+"""核心抽象類別與工具模組。"""
 
-實際定義位於 twinkle_eval.core.exceptions，此檔案保留以確保
-現有程式碼的 `from twinkle_eval.exceptions import ...` 仍可正常運作。
-"""
-
-from .core.exceptions import (
+from .abc import Extractor, LLM, ResultsExporter, Scorer
+from .exceptions import (
     ConfigurationError,
     DatasetError,
     EvaluationError,
@@ -13,8 +10,14 @@ from .core.exceptions import (
     TwinkleEvalError,
     ValidationError,
 )
+from .registry import Registry
 
 __all__ = [
+    "LLM",
+    "Extractor",
+    "Scorer",
+    "ResultsExporter",
+    "Registry",
     "TwinkleEvalError",
     "ConfigurationError",
     "LLMError",

@@ -1,375 +1,62 @@
-"""評測策略模組 - 定義各種從 LLM 輸出中提取答案的策略
+"""評測策略模組 - 向下相容的重新匯出層。
 
-包含多種策略：
-- PatternMatchingStrategy: 使用正則表達式模式匹配
-- BoxExtractionStrategy: 提取 LaTeX 格式的 \\box{} 或 \\boxed{} 中的答案
-- CustomRegexStrategy: 使用自定義正則表達式
+實際實作已遷移至 twinkle_eval.metrics 套件。
+此檔案保留以確保現有程式碼的
+`from twinkle_eval.evaluation_strategies import ...` 仍可正常運作。
+
+新程式碼應改用：
+    from twinkle_eval.metrics import create_metric_pair, get_available_methods
+    from twinkle_eval.metrics.extractors.pattern import PatternExtractor
+    from twinkle_eval.metrics.scorers.exact import ExactMatchScorer
 """
 
-import re
-from abc import ABC, abstractmethod
-from typing import Any, Dict, List, Optional, Type
-
-
-class EvaluationStrategy(ABC):
-    """評測策略抽象基本類別
-
-    所有評測策略都必須從這個類別繼承，並實現必要的抽象方法
-    """
-
-    #: 若為 True，表示此策略使用 logprobs 而非生成文字；Evaluator 會走 logit 路徑
-    uses_logprobs: bool = False
-
-    def __init__(self, config: Optional[Dict[str, Any]] = None):
-        self.config = config or {}
-
-    @abstractmethod
-    def extract_answer(self, llm_output: str) -> Optional[str]:
-        """Extract answer from LLM output."""
-        pass
-
-    @abstractmethod
-    def get_strategy_name(self) -> str:
-        """Get the name of this strategy."""
-        pass
-
-    def validate_output(self, llm_output: Optional[str]) -> bool:
-        """Validate the LLM output format."""
-        return isinstance(llm_output, str) and llm_output.strip() != ""
-
-    def normalize_answer(self, answer: str) -> str:
-        """正規化答案以便比較。預設轉大寫並去除首尾空白。"""
-        return answer.strip().upper()
-
-    def is_correct(self, predicted: str, correct: str) -> bool:
-        """判斷預測答案是否正確。預設為字串完全比對。"""
-        return predicted == correct
-
-
-class PatternMatchingStrategy(EvaluationStrategy):
-    """模式匹配策略 - 使用正則表達式在 LLM 輸出中尋找答案
-
-    預設包含了多種中文和英文的答案模式，能夠處理大部分常見的答案格式
-    """
-
-    # 預設的答案匹配模式，包含中英文各種常見格式
-    DEFAULT_PATTERNS = [
-        r"correct answer is:\n\n\n([A-Z]).",
-        r"correct answer is:\n\n([A-Z]).",
-        r"correct answer is:\n([A-Z]).",
-        r"正確的答案應該是:.*?\b([A-Z])\b",
-        r"正确的答案应该是:.*?\b([A-Z])\b",
-        r"正確的選項應為:.*?\b([A-Z])\b",
-        r"正确的选项应为:.*?\b([A-Z])\b",
-        r"正確的答案是（([A-Z])）",
-        r"正确的答案是（([A-Z])）",
-        r"答案應該是:\s?選?項?\s?([A-Z])",
-        r"答案应该是:\s?选?项?\s?([A-Z])",
-        r"答案是:\s?選?項?\s?([A-Z])",
-        r"答案是:\s?选?项?\s?([A-Z])",
-        r"答案應為:\s?選?項?\s?([A-Z])",
-        r"答案应为:\s?选?项?\s?([A-Z])",
-        r"答案為:\s?([A-Z])",
-        r"答案应为：\s?([A-Z])",
-        r"答案為：\s?([A-Z])",
-        r"答案應該是:\s?([A-Z])",
-        r"正確答案為 \*\*([A-Z])",
-        r"正確答案為\(([A-Z])\)",
-        r"答案應為:\s?([A-Z])",
-        r"答案应为:\s?([A-Z])",
-        r"答案是 \*\*([A-Z])",
-        r"答案 ([A-Z]) 正確",
-        r"選項 ([A-Z]) 正確",
-        r"所以答案為([A-Z])",
-        r"答案：\(([A-Z])\)",
-        r"答案:\s?([A-Z])",
-        r"答案：\s?([A-Z])",
-        r"答案: ([A-Z]) ",
-        r"答案([A-Z]) ",
-        r"^選項([A-Z])",
-        r"^选项([A-Z])",
-        r"^選([A-Z])",
-        r"^选([A-Z])",
-        r"([A-Z]). ",
-        r"([A-Z]).",
-    ]
-
-    def __init__(self, config: Optional[Dict[str, Any]] = None):
-        super().__init__(config)
-        self.patterns = self.config.get("patterns", self.DEFAULT_PATTERNS)
-
-    def get_strategy_name(self) -> str:
-        return "pattern"
-
-    def extract_answer(self, llm_output: str) -> Optional[str]:
-        """Extract answer using regex patterns."""
-        if not self.validate_output(llm_output):
-            return None
-
-        for pattern in self.patterns:
-            match = re.search(pattern, llm_output)
-            if match:
-                return match.group(1).strip()
-        return None
-
-    def add_pattern(self, pattern: str):
-        """Add a custom pattern to the strategy."""
-        if pattern not in self.patterns:
-            self.patterns.append(pattern)
-
-
-class BoxExtractionStrategy(EvaluationStrategy):
-    """Strategy that extracts answers from LaTeX-style box formatting."""
-
-    DEFAULT_PATTERNS = [r"\\{1,2}box{([A-Z])}", r"\\{1,2}boxed{([A-Z])}"]
-
-    def __init__(self, config: Optional[Dict[str, Any]] = None):
-        super().__init__(config)
-        self.patterns = self.config.get("patterns", self.DEFAULT_PATTERNS)
-
-    def get_strategy_name(self) -> str:
-        return "box"
-
-    def extract_answer(self, llm_output: str) -> Optional[str]:
-        """Extract answer from box/boxed formatting."""
-        if not self.validate_output(llm_output):
-            return None
-
-        for pattern in self.patterns:
-            match = re.search(pattern, llm_output)
-            if match:
-                return match.group(1).strip()
-        return None
-
-    def add_pattern(self, pattern: str):
-        """Add a custom box pattern to the strategy."""
-        if pattern not in self.patterns:
-            self.patterns.append(pattern)
-
-
-class CustomRegexStrategy(EvaluationStrategy):
-    """Strategy that allows custom regex patterns."""
-
-    def __init__(self, config: Optional[Dict[str, Any]] = None):
-        super().__init__(config)
-        if not self.config.get("patterns"):
-            raise ValueError("CustomRegexStrategy requires 'patterns' in config")
-        self.patterns = self.config["patterns"]
-
-    def get_strategy_name(self) -> str:
-        return "custom_regex"
-
-    def extract_answer(self, llm_output: str) -> Optional[str]:
-        """Extract answer using custom regex patterns."""
-        if not self.validate_output(llm_output):
-            return None
-
-        for pattern in self.patterns:
-            match = re.search(pattern, llm_output)
-            if match:
-                return match.group(1).strip()
-        return None
-
-
-class MathExtractionStrategy(EvaluationStrategy):
-    """數學評測策略 - 提取 \\boxed{} 中的數學答案，並用語意等價判斷是否正確。
-
-    需要安裝額外套件：pip install twinkle-eval[math]
-    """
-
-    # 找出所有 \boxed{ 或 \box{ 的起始位置
-    _BOXED_START = re.compile(r"\\{1,2}boxed?\{")
-
-    def __init__(self, config: Optional[Dict[str, Any]] = None):
-        super().__init__(config)
-        try:
-            from mathruler.grader import grade_answer  # type: ignore[import]
-
-            self._grade_answer = grade_answer
-        except ImportError:
-            raise ImportError(
-                "數學評測策略需要安裝額外套件，請執行：\n"
-                "  pip install twinkle-eval[math]"
-            )
-
-    def get_strategy_name(self) -> str:
-        return "math"
-
-    @staticmethod
-    def _extract_boxed_content(text: str) -> List[str]:
-        """用括號計數提取所有 \\boxed{...} 的內容，支援巢狀大括號。"""
-        results = []
-        for match in re.finditer(r"\\{1,2}boxed?\{", text):
-            start = match.end()
-            depth = 1
-            i = start
-            while i < len(text) and depth > 0:
-                if text[i] == "{":
-                    depth += 1
-                elif text[i] == "}":
-                    depth -= 1
-                i += 1
-            if depth == 0:
-                results.append(text[start:i - 1])
-        return results
-
-    def extract_answer(self, llm_output: str) -> Optional[str]:
-        """從 \\boxed{} 中提取數學答案；若無則嘗試取最後一行非空文字。"""
-        if not self.validate_output(llm_output):
-            return None
-
-        matches = self._extract_boxed_content(llm_output)
-        if matches:
-            return matches[-1].strip()
-
-        # fallback：取最後一行非空內容
-        lines = [line.strip() for line in llm_output.strip().splitlines() if line.strip()]
-        return lines[-1] if lines else None
-
-    def normalize_answer(self, answer: str) -> str:
-        """數學答案維持原格式，僅去除首尾空白。"""
-        return str(answer).strip()
-
-    def is_correct(self, predicted: str, correct: str) -> bool:
-        """用 mathruler 進行語意等價判斷，並補強大小寫與排列差異。"""
-        if not predicted or not correct:
-            return False
-        if self._grade_answer(predicted, correct):
-            return True
-        return self._post_check_equivalence(predicted, correct)
-
-    def _post_check_equivalence(self, predicted: str, gold: str) -> bool:
-        """補強 mathruler 漏網的大小寫 / 逗號分隔順序差異。"""
-        normalized_pred = self._normalize_latex_commands(predicted)
-        normalized_gold = self._normalize_latex_commands(gold)
-
-        if self._grade_answer(normalized_pred, normalized_gold):
-            return True
-        return self._compare_as_unordered_list(normalized_pred, normalized_gold)
-
-    def _normalize_latex_commands(self, expr: str) -> str:
-        """將 LaTeX 指令轉小寫，例如 \\FRAC -> \\frac。"""
-        lowered = re.sub(r"\\[A-Za-z]+", lambda m: m.group(0).lower(), expr)
-        lowered = re.sub(r"\\mbox\{([^}]+)\}", lambda m: m.group(1), lowered)
-        return lowered.lower()
-
-    def _compare_as_unordered_list(self, predicted: str, gold: str) -> bool:
-        """允許逗號分隔解集合忽略順序比對，例如 1,-2 等價 -2,1。"""
-        pred_items = self._split_simple_commas(predicted)
-        gold_items = self._split_simple_commas(gold)
-
-        if not pred_items or not gold_items or len(pred_items) != len(gold_items):
-            return False
-
-        used = [False] * len(gold_items)
-        for pred_item in pred_items:
-            matched = False
-            for idx, gold_item in enumerate(gold_items):
-                if used[idx]:
-                    continue
-                if self._grade_answer(pred_item, gold_item):
-                    used[idx] = True
-                    matched = True
-                    break
-            if not matched:
-                return False
-        return True
-
-    def _split_simple_commas(self, expr: str) -> List[str]:
-        """拆解簡單逗號分隔元素（跳過含 LaTeX 排版的表達式）。"""
-        stripped = expr.strip()
-        if "\\\\" in stripped or "\\begin" in stripped or "\\end" in stripped:
-            return []
-        if len(stripped) >= 2 and stripped[0] in "([{<" and stripped[-1] in ")]}>":
-            stripped = stripped[1:-1]
-        parts = [p.strip() for p in stripped.split(",") if p.strip()]
-        return parts if len(parts) > 1 else []
-
-
-class LogitEvaluationStrategy(EvaluationStrategy):
-    """Log-likelihood (logit) 評測策略
-
-    不解析生成文字，而是比較各選項標籤在第一個 token 的 log probability，
-    選出機率最高者作為答案。適用於選擇題評測，更接近 lm-evaluation-harness 的做法。
-
-    需要 API 支援 logprobs 參數（vLLM、OpenAI 等均支援）。
-    """
-
-    uses_logprobs: bool = True
-
-    def get_strategy_name(self) -> str:
-        return "logit"
-
-    def extract_answer(self, llm_output: str) -> Optional[str]:
-        # logit 策略走 logprobs 路徑，此方法不會被 Evaluator 呼叫
-        return None
-
-    def extract_answer_from_logprobs(
-        self,
-        top_logprobs: List[Any],
-        option_keys: List[str],
-    ) -> Optional[str]:
-        """從第一個 token 的 top_logprobs 中，選出 option_keys 裡 log probability 最高的選項。
-
-        Args:
-            top_logprobs: choices[0].logprobs.content[0].top_logprobs，每項有 .token 與 .logprob。
-            option_keys:  有效選項標籤清單，如 ["A", "B", "C", "D"]。
-
-        Returns:
-            log probability 最高的選項標籤；若所有選項均不在 top_logprobs 內則回傳 None。
-        """
-        if not top_logprobs or not option_keys:
-            return None
-
-        # 建立 token → logprob 映射（相同 token 取最高值）
-        token_to_logprob: Dict[str, float] = {}
-        for lp in top_logprobs:
-            token = lp.token.strip()
-            if token not in token_to_logprob or lp.logprob > token_to_logprob[token]:
-                token_to_logprob[token] = lp.logprob
-
-        best_option: Optional[str] = None
-        best_logprob: float = float("-inf")
-        for key in option_keys:
-            logprob = token_to_logprob.get(key, float("-inf"))
-            if logprob > best_logprob:
-                best_logprob = logprob
-                best_option = key
-
-        return best_option
+from .metrics.extractors.box import BoxExtractor as BoxExtractionStrategy
+from .metrics.extractors.custom import CustomRegexExtractor as CustomRegexStrategy
+from .metrics.extractors.logit import LogitExtractor as LogitEvaluationStrategy
+from .metrics.extractors.math import MathExtractor as MathExtractionStrategy
+from .metrics.extractors.pattern import PatternExtractor as PatternMatchingStrategy
+from .metrics import get_available_methods
+
+# EvaluationStrategy 向下相容 shim（委派至 Extractor/Scorer 介面）
+from .core.abc import Extractor as EvaluationStrategy
 
 
 class EvaluationStrategyFactory:
-    """Factory class for creating evaluation strategy instances."""
-
-    _registry: Dict[str, Type[EvaluationStrategy]] = {
-        "pattern": PatternMatchingStrategy,
-        "box": BoxExtractionStrategy,
-        "custom_regex": CustomRegexStrategy,
-        "math": MathExtractionStrategy,
-        "logit": LogitEvaluationStrategy,
-    }
+    """向下相容的工廠類別。新程式碼應改用 twinkle_eval.metrics.create_metric_pair。"""
 
     @classmethod
-    def register_strategy(cls, name: str, strategy_class: Type[EvaluationStrategy]):
-        """Register a new evaluation strategy."""
-        cls._registry[name] = strategy_class
+    def create_strategy(cls, strategy_type: str, config=None):
+        """建立評測策略實例（向下相容介面）。"""
+        from .metrics import create_metric_pair
+        extractor, scorer = create_metric_pair(strategy_type, config or {})
+        # 回傳一個 shim，讓舊程式碼可以繼續使用 extract_answer / normalize_answer / is_correct
+        from .config import _CompatStrategyShim
+        return _CompatStrategyShim(extractor, scorer)
 
     @classmethod
-    def create_strategy(
-        cls, strategy_type: str, config: Optional[Dict[str, Any]] = None
-    ) -> EvaluationStrategy:
-        """Create an evaluation strategy instance based on type."""
-        if strategy_type not in cls._registry:
-            available_types = ", ".join(cls._registry.keys())
-            raise ValueError(
-                f"Unsupported strategy type: {strategy_type}. Available types: {available_types}"
-            )
-
-        strategy_class = cls._registry[strategy_type]
-        return strategy_class(config)
+    def get_available_types(cls):
+        """回傳所有可用的評測策略名稱。"""
+        return get_available_methods()
 
     @classmethod
-    def get_available_types(cls) -> List[str]:
-        """Get list of available strategy types."""
-        return list(cls._registry.keys())
+    def register_strategy(cls, name: str, strategy_class):
+        """向評測策略登錄表新增自訂策略（向下相容介面）。"""
+        # 無法直接對應到新架構，記錄警告
+        import warnings
+        warnings.warn(
+            "EvaluationStrategyFactory.register_strategy 已過時。"
+            "請改用 twinkle_eval.metrics.register_preset。",
+            DeprecationWarning,
+            stacklevel=2,
+        )
+
+
+__all__ = [
+    "EvaluationStrategy",
+    "PatternMatchingStrategy",
+    "BoxExtractionStrategy",
+    "CustomRegexStrategy",
+    "MathExtractionStrategy",
+    "LogitEvaluationStrategy",
+    "EvaluationStrategyFactory",
+]

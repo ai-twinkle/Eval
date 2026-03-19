@@ -5,8 +5,8 @@ from typing import Any, Dict, List, Optional
 
 import yaml
 
-from .evaluation_strategies import EvaluationStrategyFactory
 from .exceptions import ConfigurationError, ValidationError
+from .metrics import get_available_methods
 
 
 class ConfigValidator:
@@ -148,7 +148,7 @@ class ConfigValidator:
         eval_method = eval_config["evaluation_method"]
         if not isinstance(eval_method, str) or not eval_method.strip():
             raise ValidationError("Evaluation 'evaluation_method' must be a non-empty string")
-        available_methods = set(EvaluationStrategyFactory.get_available_types())
+        available_methods = set(get_available_methods())
         if eval_method not in available_methods:
             raise ValidationError(
                 f"Evaluation method '{eval_method}' is not supported; "

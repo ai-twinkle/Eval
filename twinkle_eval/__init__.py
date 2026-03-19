@@ -14,7 +14,7 @@
 
 使用範例：
     from twinkle_eval import TwinkleEvalRunner
-    
+
     runner = TwinkleEvalRunner("config.yaml")
     runner.initialize()
     runner.run_evaluation()
@@ -28,16 +28,7 @@ __author__ = "Twinkle AI Team"
 __license__ = "MIT"
 
 from .config import ConfigurationManager, load_config
-from .dataset import Dataset, find_all_evaluation_files
-from .evaluation_strategies import (
-    BoxExtractionStrategy,
-    CustomRegexStrategy,
-    EvaluationStrategy,
-    EvaluationStrategyFactory,
-    LogitEvaluationStrategy,
-    MathExtractionStrategy,
-    PatternMatchingStrategy,
-)
+from .datasets import Dataset, find_all_evaluation_files
 from .evaluators import Evaluator, RateLimiter
 from .exceptions import (
     ConfigurationError,
@@ -48,10 +39,29 @@ from .exceptions import (
     TwinkleEvalError,
     ValidationError,
 )
-
-# 匯入主要類別和函數，方便使用者直接從套件層級使用
 from .main import TwinkleEvalRunner, create_cli_parser
+from .metrics import (
+    BoxExtractor,
+    CustomRegexExtractor,
+    ExactMatchScorer,
+    Extractor,
+    LogitExtractor,
+    MathExtractor,
+    MathRulerScorer,
+    PatternExtractor,
+    Scorer,
+    create_metric_pair,
+    get_available_methods,
+)
 from .models import LLM, LLMFactory, OpenAIModel
+
+# ── 向下相容的別名（舊程式碼仍可正常 import）──────────────────────────────────
+# evaluation_strategies 模組中的舊類別名稱對應
+from .metrics.extractors.box import BoxExtractor as BoxExtractionStrategy
+from .metrics.extractors.custom import CustomRegexExtractor as CustomRegexStrategy
+from .metrics.extractors.logit import LogitExtractor as LogitEvaluationStrategy
+from .metrics.extractors.math import MathExtractor as MathExtractionStrategy
+from .metrics.extractors.pattern import PatternExtractor as PatternMatchingStrategy
 
 # 定義 __all__ 以控制 from twinkle_eval import * 的行為
 __all__ = [
@@ -68,14 +78,24 @@ __all__ = [
     "Dataset",
     "Evaluator",
     "RateLimiter",
-    # 評測策略
-    "EvaluationStrategy",
+    # 新 Extractor/Scorer 介面
+    "Extractor",
+    "Scorer",
+    "PatternExtractor",
+    "BoxExtractor",
+    "LogitExtractor",
+    "MathExtractor",
+    "CustomRegexExtractor",
+    "ExactMatchScorer",
+    "MathRulerScorer",
+    "create_metric_pair",
+    "get_available_methods",
+    # 向下相容別名（舊名稱）
     "PatternMatchingStrategy",
     "BoxExtractionStrategy",
     "CustomRegexStrategy",
     "MathExtractionStrategy",
     "LogitEvaluationStrategy",
-    "EvaluationStrategyFactory",
     # 工具函數
     "load_config",
     "find_all_evaluation_files",
@@ -91,13 +111,13 @@ __all__ = [
 ]
 
 
-def get_version():
-    """取得 Twinkle Eval 版本號"""
+def get_version() -> str:
+    """取得 Twinkle Eval 版本號。"""
     return __version__
 
 
-def get_info():
-    """取得 Twinkle Eval 套件資訊"""
+def get_info() -> dict:
+    """取得 Twinkle Eval 套件資訊。"""
     return {
         "name": "Twinkle Eval",
         "version": __version__,

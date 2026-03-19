@@ -3,9 +3,9 @@ from typing import Any, Dict
 
 import yaml
 
-from .evaluation_strategies import EvaluationStrategyFactory
 from .exceptions import ConfigurationError, ValidationError
 from .logger import log_error, log_info
+from .metrics import create_metric_pair, get_available_methods
 from .models import LLMFactory
 from .validators import ConfigValidator, DatasetValidator
 
@@ -14,40 +14,21 @@ class ConfigurationManager:
     """配置管理器 - 負責載入和驗證評測系統的配置設定"""
 
     def __init__(self, config_path: str = "config.yaml"):
-        """初始化配置管理器
-
-        Args:
-            config_path: 配置檔案路徑，預設為 config.yaml
-        """
         self.config_path = config_path
-        self.config = {}
+        self.config: Dict[str, Any] = {}
         self.validator = ConfigValidator()
 
     def load_config(self) -> Dict[str, Any]:
-        """載入並驗證配置檔案
-
-        Returns:
-            Dict[str, Any]: 已驗證的配置字典
-
-        Raises:
-            ConfigurationError: 配置載入或驗證失敗
-            ValidationError: 配置格式或內容驗證失敗
-        """
+        """載入並驗證配置檔案。"""
         try:
-            # 驗證檔案是否存在且可讀取
             self.validator.validate_config_file(self.config_path)
-
-            # 驗證 YAML 語法
             self.validator.validate_yaml_syntax(self.config_path)
 
-            # 載入配置檔案
             with open(self.config_path, "r", encoding="utf-8") as f:
                 self.config = yaml.safe_load(f)
 
-            # 驗證配置結構
             self.validator.validate_config_structure(self.config)
 
-            # 套用預設值並驗證
             self._apply_defaults()
             self._validate_dataset_paths()
             self._validate_google_services()
@@ -63,55 +44,47 @@ class ConfigurationManager:
             log_error(f"載入配置時發生未預期錯誤: {e}")
             raise ConfigurationError(f"配置載入失敗: {e}") from e
 
-    def _apply_defaults(self):
-        """為配置套用預設值
-
-        當配置檔案中缺少某些選項時，自動填入合理的預設值
-        """
-        # 設定預設 LLM 類型
+    def _apply_defaults(self) -> None:
+        """為配置套用預設值。"""
         if "type" not in self.config["llm_api"]:
             self.config["llm_api"]["type"] = "openai"
 
-        # 設定預設 API 設定
         api_defaults = {
-            "max_retries": 3,  # 最大重試次數
-            "timeout": 600,  # 請求逾時時間（秒）
-            "api_rate_limit": -1,  # API 速率限制（-1 表示無限制）
-            "disable_ssl_verify": False,  # 是否停用 SSL 驗證
+            "max_retries": 3,
+            "timeout": 600,
+            "api_rate_limit": -1,
+            "disable_ssl_verify": False,
         }
         for key, value in api_defaults.items():
             if key not in self.config["llm_api"]:
                 self.config["llm_api"][key] = value
 
-        # 設定預設模型參數
         model_defaults = {
-            "temperature": 0.0,  # 隨機性控制（0.0-1.0）
-            "top_p": 0.9,  # 核心採樣參數（0.0-1.0）
-            "max_tokens": 4096,  # 最大輸出 token 數
-            "frequency_penalty": 0.0,  # 頻率懲罰（-2.0-2.0）
-            "presence_penalty": 0.0,  # 存在懲罰（-2.0-2.0）
-            "extra_body": {},  # 額外參數
+            "temperature": 0.0,
+            "top_p": 0.9,
+            "max_tokens": 4096,
+            "frequency_penalty": 0.0,
+            "presence_penalty": 0.0,
+            "extra_body": {},
         }
         for key, value in model_defaults.items():
             if key not in self.config["model"]:
                 self.config["model"][key] = value
 
-        # 設定預設評測設定
         eval_defaults = {
-            "repeat_runs": 1,  # 重複執行次數
-            "shuffle_options": False,  # 是否隨機打亂選項順序
-            "datasets_prompt_map": {},  # 資料集語言對應表
-            "strategy_config": {},  # 評測策略配置
-            "dataset_overrides": {},  # 資料集客製化設定
-            "samples_per_question": 1,  # 單題產生樣本數（用於 pass@k）
-            "pass_k": 1,  # pass@k 的 k 值
-            "system_prompt_enabled": True,  # 是否啟用 system prompt
+            "repeat_runs": 1,
+            "shuffle_options": False,
+            "datasets_prompt_map": {},
+            "strategy_config": {},
+            "dataset_overrides": {},
+            "samples_per_question": 1,
+            "pass_k": 1,
+            "system_prompt_enabled": True,
         }
         for key, value in eval_defaults.items():
             if key not in self.config["evaluation"]:
                 self.config["evaluation"][key] = value
 
-        # 設定分散式評測預設值（從環境變數讀取，單機時保持 rank=0, world_size=1）
         world_size = int(os.environ.get("WORLD_SIZE", "1"))
         rank = int(os.environ.get("RANK", "0"))
         dist_defaults = {"world_size": world_size, "rank": rank}
@@ -122,7 +95,6 @@ class ConfigurationManager:
                 if key not in self.config["distributed"]:
                     self.config["distributed"][key] = value
 
-        # 設定預設環境配置
         if "environment" not in self.config:
             self.config["environment"] = {}
 
@@ -146,14 +118,8 @@ class ConfigurationManager:
             if key not in self.config["environment"]:
                 self.config["environment"][key] = value
 
-    def _validate_dataset_paths(self):
-        """驗證資料集路徑是否存在且可存取
-
-        檢查配置中指定的所有資料集路徑是否有效，並統計可用的資料集檔案數量
-
-        Raises:
-            ConfigurationError: 當資料集路徑無效時拋出
-        """
+    def _validate_dataset_paths(self) -> None:
+        """驗證資料集路徑是否存在且可存取。"""
         dataset_paths = self.config["evaluation"]["dataset_paths"]
         if isinstance(dataset_paths, str):
             dataset_paths = [dataset_paths]
@@ -167,69 +133,57 @@ class ConfigurationManager:
                 log_error(f"資料集驗證失敗 {path}: {e}")
                 raise ConfigurationError(f"無效的資料集路徑 {path}: {e}") from e
 
-    def _instantiate_components(self):
-        """實例化 LLM 和評測策略元件
-
-        根據配置建立 LLM 實例和評測策略實例，並將其加入配置中供後續使用
-
-        Raises:
-            ConfigurationError: 當元件實例化失敗時拋出
-        """
+    def _instantiate_components(self) -> None:
+        """實例化 LLM 和評測 Extractor/Scorer 元件。"""
         try:
-            # 使用工廠模式建立 LLM 實例
             llm_type = self.config["llm_api"]["type"]
             self.config["llm_instance"] = LLMFactory.create_llm(llm_type, self.config)
             log_info(f"LLM 實例建立完成: {llm_type}")
 
         except Exception as e:
             available_types = ", ".join(LLMFactory.get_available_types())
-            error_msg = f"不支援的 LLM API 類型: {llm_type}. 可用類型: {available_types}"
+            error_msg = f"不支援的 LLM API 類型: {self.config['llm_api'].get('type', '?')}. 可用類型: {available_types}"
             log_error(error_msg)
             raise ConfigurationError(error_msg) from e
 
         try:
-            # 使用工廠模式建立評測策略實例
             eval_method = self.config["evaluation"]["evaluation_method"]
             strategy_config = self.config["evaluation"].get("strategy_config", {})
 
-            self.config["evaluation_strategy_instance"] = EvaluationStrategyFactory.create_strategy(
-                eval_method, strategy_config
-            )
+            extractor, scorer = create_metric_pair(eval_method, strategy_config)
+            self.config["extractor_instance"] = extractor
+            self.config["scorer_instance"] = scorer
+
+            # 向下相容：保留 evaluation_strategy_instance 指向一個相容物件
+            # （讓 main.py 仍可透過 config["evaluation_strategy_instance"] 取得）
+            # 此處建立一個簡單的 shim 讓舊程式碼不報錯
+            self.config["evaluation_strategy_instance"] = _CompatStrategyShim(extractor, scorer)
+
             log_info(f"評測策略建立完成: {eval_method}")
 
         except Exception as e:
-            available_types = ", ".join(EvaluationStrategyFactory.get_available_types())
-            error_msg = f"不支援的評測方法: {eval_method}. 可用方法: {available_types}"
+            available_methods = ", ".join(get_available_methods())
+            error_msg = f"不支援的評測方法: {self.config['evaluation'].get('evaluation_method', '?')}. 可用方法: {available_methods}"
             log_error(error_msg)
             raise ConfigurationError(error_msg) from e
 
-    def _validate_google_services(self):
-        """驗證 Google 服務配置
-
-        檢查 Google Drive 和 Google Sheets 的配置是否正確，
-        包括驗證憑證檔案、必要參數等
-
-        Raises:
-            ConfigurationError: 當 Google 服務配置無效時拋出
-        """
+    def _validate_google_services(self) -> None:
+        """驗證 Google 服務配置。"""
         google_services_config = self.config.get("google_services")
         if not google_services_config:
-            return  # 如果沒有配置 Google 服務則跳過驗證
+            return
 
-        # 驗證 Google Sheets 配置
         google_sheets_config = google_services_config.get("google_sheets", {})
         if google_sheets_config.get("enabled", False):
             self._validate_google_sheets_config(google_sheets_config)
             log_info("Google Sheets 配置驗證完成")
 
-        # 驗證 Google Drive 配置
         google_drive_config = google_services_config.get("google_drive", {})
         if google_drive_config.get("enabled", False):
             try:
                 self._validate_google_drive_config(google_drive_config)
                 log_info("Google Drive 配置驗證完成")
             except ConfigurationError as e:
-                # 如果是權限問題，建議使用 OAuth 方式
                 if "不存在或 Service Account 無權限存取" in str(e):
                     auth_method = google_drive_config.get("auth_method", "service_account")
                     if auth_method == "service_account":
@@ -237,78 +191,49 @@ class ConfigurationManager:
                         log_info("建議解決方案:")
                         log_info("1. 將 Service Account Email 加入 Google Drive 資料夾共享")
                         log_info("2. 或改用 OAuth 驗證方式：設定 auth_method: 'oauth'")
-                        # 不拋出錯誤，允許繼續執行，但會在實際上傳時失敗並提示
                     else:
                         raise
                 else:
                     raise
 
-    def _validate_google_sheets_config(self, config: Dict[str, Any]):
-        """驗證 Google Sheets 特定配置
-
-        Args:
-            config: Google Sheets 配置字典
-
-        Raises:
-            ConfigurationError: 配置驗證失敗時拋出
-        """
-        # 檢查必要參數
+    def _validate_google_sheets_config(self, config: Dict[str, Any]) -> None:
         spreadsheet_id = config.get("spreadsheet_id")
         if not spreadsheet_id or not spreadsheet_id.strip():
             raise ConfigurationError("Google Sheets 配置錯誤: spreadsheet_id 為必填項目")
 
-        # 驗證身份驗證配置
         self._validate_google_auth_config(config, "Google Sheets")
 
         try:
-            # 嘗試建立 GoogleSheetsService 實例來驗證配置
-            from .google_services import GoogleSheetsService
+            from .integrations.google import GoogleSheetsService
 
             sheets_service = GoogleSheetsService(config)
-
-            # 嘗試驗證 spreadsheet 是否可以存取
-            sheet_name = config.get("sheet_name", "Results")
             sheets_service.service.spreadsheets().get(spreadsheetId=spreadsheet_id).execute()
-
             log_info(f"Google Sheets 連接測試成功 - 試算表 ID: {spreadsheet_id}")
 
         except Exception as e:
             raise ConfigurationError(f"Google Sheets 配置驗證失敗: {e}") from e
 
-    def _validate_google_drive_config(self, config: Dict[str, Any]):
-        """驗證 Google Drive 特定配置
-
-        Args:
-            config: Google Drive 配置字典
-
-        Raises:
-            ConfigurationError: 配置驗證失敗時拋出
-        """
-        # 驗證身份驗證配置
+    def _validate_google_drive_config(self, config: Dict[str, Any]) -> None:
         self._validate_google_auth_config(config, "Google Drive")
 
         try:
-            # 嘗試建立 GoogleDriveUploader 實例來驗證配置
-            from .google_services import GoogleDriveUploader
+            from .integrations.google import GoogleDriveUploader
 
             drive_uploader = GoogleDriveUploader(config)
 
-            # 驗證 log_folder_id 是否存在且可存取（如果有設定的話）
             log_folder_id = config.get("log_folder_id")
             if log_folder_id and log_folder_id.strip():
                 try:
-                    # 嘗試取得資料夾資訊來驗證它是否存在且可存取
                     folder_info = (
                         drive_uploader.service.files()
                         .get(
-                            fileId=log_folder_id, 
+                            fileId=log_folder_id,
                             fields="id,name,mimeType",
-                            supportsAllDrives=True
+                            supportsAllDrives=True,
                         )
                         .execute()
                     )
 
-                    # 檢查是否為資料夾
                     if folder_info.get("mimeType") != "application/vnd.google-apps.folder":
                         raise ConfigurationError(
                             f"Google Drive log_folder_id 指向的不是資料夾: {log_folder_id}"
@@ -328,7 +253,7 @@ class ConfigurationManager:
                             with open(credentials_file, "r", encoding="utf-8") as f:
                                 cred_data = json.load(f)
                                 service_account_email = cred_data.get("client_email", "未知")
-                        except:
+                        except Exception:
                             service_account_email = "未知"
 
                         raise ConfigurationError(
@@ -349,18 +274,7 @@ class ConfigurationManager:
         except Exception as e:
             raise ConfigurationError(f"Google Drive 配置驗證失敗: {e}") from e
 
-    def _validate_google_auth_config(self, config: Dict[str, Any], service_name: str):
-        """驗證 Google 服務身份驗證配置
-
-        Args:
-            config: Google 服務配置字典
-            service_name: 服務名稱（用於錯誤訊息）
-
-        Raises:
-            ConfigurationError: 身份驗證配置驗證失敗時拋出
-        """
-        import os
-
+    def _validate_google_auth_config(self, config: Dict[str, Any], service_name: str) -> None:
         auth_method = config.get("auth_method", "service_account")
         credentials_file = config.get("credentials_file")
 
@@ -372,7 +286,6 @@ class ConfigurationManager:
                 f"{service_name} 配置錯誤: 憑證檔案不存在 - {credentials_file}"
             )
 
-        # 驗證憑證檔案格式
         if auth_method == "service_account":
             try:
                 import json
@@ -380,7 +293,6 @@ class ConfigurationManager:
                 with open(credentials_file, "r", encoding="utf-8") as f:
                     cred_data = json.load(f)
 
-                # 檢查 Service Account 必要欄位
                 required_fields = [
                     "type",
                     "project_id",
@@ -405,16 +317,31 @@ class ConfigurationManager:
                 raise ConfigurationError(f"{service_name} 憑證檔案讀取失敗: {e}") from e
 
 
-def load_config(config_path: str = "config.yaml") -> Dict[str, Any]:
-    """使用配置管理器載入配置
+class _CompatStrategyShim:
+    """向下相容 shim：讓舊程式碼仍可透過 evaluation_strategy_instance 使用。
 
-    這是一個便利函數，為外部模組提供簡單的配置載入介面
-
-    Args:
-        config_path: 配置檔案路徑，預設為 config.yaml
-
-    Returns:
-        Dict[str, Any]: 載入並驗證後的配置字典
+    此 shim 將 EvaluationStrategy 的方法委派至新的 Extractor / Scorer 介面。
     """
+
+    def __init__(self, extractor: Any, scorer: Any) -> None:
+        self._extractor = extractor
+        self._scorer = scorer
+        self.uses_logprobs: bool = getattr(extractor, "uses_logprobs", False)
+
+    def extract_answer(self, llm_output: str) -> Any:
+        return self._extractor.extract(llm_output)
+
+    def normalize_answer(self, answer: str) -> str:
+        return self._scorer.normalize(answer)
+
+    def is_correct(self, predicted: str, correct: str) -> bool:
+        return self._scorer.score(predicted, correct)
+
+    def get_strategy_name(self) -> str:
+        return self._extractor.get_name()
+
+
+def load_config(config_path: str = "config.yaml") -> Dict[str, Any]:
+    """便利函數：使用 ConfigurationManager 載入配置。"""
     manager = ConfigurationManager(config_path)
     return manager.load_config()

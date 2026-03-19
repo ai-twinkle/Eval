@@ -10,10 +10,10 @@ import numpy as np
 from twinkle_eval.exceptions import ConfigurationError, EvaluationError
 
 from .config import load_config
-from .dataset import find_all_evaluation_files
+from .datasets import find_all_evaluation_files
 from .evaluators import Evaluator
+from .exporters import ResultsExporterFactory
 from .logger import log_error, log_info
-from .results_exporters import ResultsExporterFactory
 
 
 def convert_json_to_html(json_file_path: str) -> int:
@@ -160,8 +160,9 @@ class TwinkleEvalRunner:
         # 移除敏感資訊（API 金鑰）
         if "llm_api" in save_config and "api_key" in save_config["llm_api"]:
             del save_config["llm_api"]["api_key"]
-        if "evaluation_strategy_instance" in save_config:
-            del save_config["evaluation_strategy_instance"]
+        for key in ("evaluation_strategy_instance", "extractor_instance", "scorer_instance"):
+            if key in save_config:
+                del save_config[key]
 
         return save_config
 
@@ -350,10 +351,11 @@ class TwinkleEvalRunner:
         dataset_results = {}  # 儲存所有資料集的結果
 
         llm_instance = self.config["llm_instance"]
-        default_strategy = self.config["evaluation_strategy_instance"]
         strategy_config = self.config["evaluation"].get("strategy_config", {})
-        # 快取已建立的策略，避免重複實例化
-        strategy_cache = {self.config["evaluation"]["evaluation_method"]: default_strategy}
+        # 快取已建立的 (extractor, scorer) 配對，避免重複實例化
+        from .metrics import create_metric_pair
+        default_method = self.config["evaluation"]["evaluation_method"]
+        metric_cache = {default_method: create_metric_pair(default_method, strategy_config)}
 
         # 逐一評測每個資料集
         for dataset_path in dataset_paths:
@@ -361,16 +363,16 @@ class TwinkleEvalRunner:
                 ds = self._resolve_dataset_settings(dataset_path)
                 eval_method = ds["evaluation_method"]
 
-                if eval_method not in strategy_cache:
-                    from .evaluation_strategies import EvaluationStrategyFactory
-                    strategy_cache[eval_method] = EvaluationStrategyFactory.create_strategy(
-                        eval_method, strategy_config
-                    )
+                if eval_method not in metric_cache:
+                    metric_cache[eval_method] = create_metric_pair(eval_method, strategy_config)
+
+                extractor, scorer = metric_cache[eval_method]
 
                 evaluator = Evaluator(
-                    llm_instance,
-                    strategy_cache[eval_method],
-                    self.config,
+                    llm=llm_instance,
+                    extractor=extractor,
+                    scorer=scorer,
+                    config=self.config,
                     eval_method=eval_method,
                     system_prompt_enabled=ds["system_prompt_enabled"],
                     samples_per_question=ds["samples_per_question"],
@@ -460,7 +462,7 @@ class TwinkleEvalRunner:
         google_drive_config = google_services_config.get("google_drive", {})
         if google_drive_config.get("enabled", False):
             try:
-                from .google_services import GoogleDriveUploader
+                from .integrations.google import GoogleDriveUploader
 
                 uploader = GoogleDriveUploader(google_drive_config)
                 upload_info = uploader.upload_latest_files(self.start_time, "logs", "results")
@@ -675,10 +677,10 @@ def main() -> int:
         return 0
 
     if args.list_strategies:
-        from .evaluation_strategies import EvaluationStrategyFactory
+        from .metrics import get_available_methods
 
         print("可用的評測策略:")
-        for strategy in EvaluationStrategyFactory.get_available_types():
+        for strategy in get_available_methods():
             print(f"  - {strategy}")
         return 0
 
