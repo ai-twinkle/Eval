@@ -9,10 +9,10 @@ from typing import Any, Dict, Optional, Tuple
 
 from tqdm import tqdm
 
-from .datasets import Dataset
-from .core.abc import Extractor, Scorer
-from .logger import log_error
-from .models import LLM
+from twinkle_eval.datasets import Dataset
+from twinkle_eval.core.abc import Extractor, Scorer
+from twinkle_eval.core.logger import log_error
+from twinkle_eval.models import LLM
 
 
 def _get_node_id() -> str:

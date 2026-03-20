@@ -39,15 +39,16 @@ def _make_completion(content, reasoning_content=None):
 
 
 def _make_evaluator():
-    from twinkle_eval.evaluators import Evaluator
-    from twinkle_eval.evaluation_strategies import PatternMatchingStrategy
+    from twinkle_eval.runners.evaluator import Evaluator
+    from twinkle_eval.metrics.extractors.pattern import PatternExtractor
+    from twinkle_eval.metrics.scorers.exact import ExactMatchScorer
 
     mock_llm = MagicMock()
     config = {
         "llm_api": {"api_rate_limit": -1},
         "evaluation": {"shuffle_options": False},
     }
-    return Evaluator(llm=mock_llm, evaluation_strategy=PatternMatchingStrategy(), config=config)
+    return Evaluator(llm=mock_llm, extractor=PatternExtractor(), scorer=ExactMatchScorer(), config=config)
 
 
 def _run_single(evaluator, completion, tmp_path):
@@ -70,8 +71,8 @@ def _run_single(evaluator, completion, tmp_path):
             return jsonl_path
         return original_join(*args)
 
-    with patch("twinkle_eval.evaluators.os.makedirs"), \
-         patch("twinkle_eval.evaluators.os.path.join", side_effect=patched_join):
+    with patch("twinkle_eval.runners.evaluator.os.makedirs"), \
+         patch("twinkle_eval.runners.evaluator.os.path.join", side_effect=patched_join):
         evaluator.evaluate_file(dataset_path, "test_run0")
 
     with open(jsonl_path) as f:

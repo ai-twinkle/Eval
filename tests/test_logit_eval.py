@@ -1,35 +1,39 @@
-"""Tests for LogitEvaluationStrategy and score_continuation path."""
+"""Tests for LogitExtractor and score_continuation path."""
 from unittest.mock import MagicMock, patch
 
 import pytest
 
-from twinkle_eval.evaluation_strategies import LogitEvaluationStrategy
+from twinkle_eval.metrics.extractors.logit import LogitExtractor as LogitEvaluationStrategy
 
 
-# ── Strategy unit tests ──────────────────────────────────────────────────────
+# ── Extractor unit tests ──────────────────────────────────────────────────────
 
 class TestLogitEvaluationStrategy:
     def setup_method(self):
-        self.strategy = LogitEvaluationStrategy.__new__(LogitEvaluationStrategy)
-        self.strategy.config = {}
+        self.extractor = LogitEvaluationStrategy.__new__(LogitEvaluationStrategy)
+        self.extractor._config = {}
 
     def test_uses_logprobs_flag(self):
-        assert self.strategy.uses_logprobs is True
+        assert self.extractor.uses_logprobs is True
 
     def test_strategy_name(self):
-        assert self.strategy.get_strategy_name() == "logit"
+        assert self.extractor.get_name() == "logit"
 
-    def test_extract_answer_text_returns_none(self):
+    def test_extract_text_returns_none(self):
         """logit 策略不走文字解析路徑。"""
-        assert self.strategy.extract_answer("A") is None
+        assert self.extractor.extract("A") is None
 
     def test_normalize_answer(self):
-        assert self.strategy.normalize_answer("a") == "A"
-        assert self.strategy.normalize_answer(" B ") == "B"
+        from twinkle_eval.metrics.scorers.exact import ExactMatchScorer
+        scorer = ExactMatchScorer()
+        assert scorer.normalize("a") == "A"
+        assert scorer.normalize(" B ") == "B"
 
     def test_is_correct(self):
-        assert self.strategy.is_correct("A", "A") is True
-        assert self.strategy.is_correct("A", "B") is False
+        from twinkle_eval.metrics.scorers.exact import ExactMatchScorer
+        scorer = ExactMatchScorer()
+        assert scorer.score("A", "A") is True
+        assert scorer.score("A", "B") is False
 
 
 # ── score_continuation unit tests ────────────────────────────────────────────
@@ -38,7 +42,7 @@ class TestScoreContinuation:
     """測試 OpenAIModel.score_continuation 的邏輯。"""
 
     def _make_model(self):
-        from twinkle_eval.models import OpenAIModel
+        from twinkle_eval.models.openai import OpenAIModel
         model = OpenAIModel.__new__(OpenAIModel)
         model.config = {
             "llm_api": {"api_key": "test", "base_url": "http://localhost", "disable_ssl_verify": False,
@@ -100,7 +104,8 @@ class TestLogitEvaluatorParallelCalls:
 
     def test_n_parallel_calls_per_question(self, tmp_path):
         import json
-        from twinkle_eval.evaluators import Evaluator
+        from twinkle_eval.runners.evaluator import Evaluator
+        from twinkle_eval.metrics.scorers.exact import ExactMatchScorer
 
         # 建立 1 題 ABCD 選擇題
         jsonl = tmp_path / "test.jsonl"
@@ -110,8 +115,8 @@ class TestLogitEvaluatorParallelCalls:
             "answer": "B"
         }) + "\n")
 
-        strategy = LogitEvaluationStrategy.__new__(LogitEvaluationStrategy)
-        strategy.config = {}
+        extractor = LogitEvaluationStrategy.__new__(LogitEvaluationStrategy)
+        extractor._config = {}
 
         call_log = []
 
@@ -122,7 +127,8 @@ class TestLogitEvaluatorParallelCalls:
 
         evaluator = Evaluator(
             llm=mock_llm,
-            evaluation_strategy=strategy,
+            extractor=extractor,
+            scorer=ExactMatchScorer(),
             config={"llm_api": {"api_rate_limit": -1}, "evaluation": {"evaluation_method": "logit"}},
         )
 

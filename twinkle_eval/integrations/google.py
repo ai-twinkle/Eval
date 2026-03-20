@@ -12,8 +12,8 @@ from googleapiclient.discovery import build
 from googleapiclient.http import MediaFileUpload
 
 from twinkle_eval.core.abc import ResultsExporter
-from twinkle_eval.exceptions import ConfigurationError
-from twinkle_eval.logger import log_error, log_info
+from twinkle_eval.core.exceptions import ConfigurationError
+from twinkle_eval.core.logger import log_error, log_info
 
 
 class GoogleDriveUploader:

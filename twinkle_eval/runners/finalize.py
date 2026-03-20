@@ -6,7 +6,7 @@ from typing import Optional
 
 import numpy as np
 
-from .results_exporters import ResultsExporterFactory
+from twinkle_eval.exporters import ResultsExporterFactory
 
 
 def finalize_results(timestamp: str, hf_repo_id: Optional[str] = None, hf_variant: Optional[str] = "default") -> int:
@@ -27,7 +27,7 @@ def finalize_results(timestamp: str, hf_repo_id: Optional[str] = None, hf_varian
         print(f"未發現分散式碎片，以單節點模式直接上傳 {single_node_result}。")
         if hf_repo_id:
             try:
-                from .hf_uploader import upload_results
+                from twinkle_eval.integrations.huggingface import upload_results
                 with open(single_node_result, "r", encoding="utf-8") as _f:
                     _result = json.load(_f)
                 model_name = _result.get("config", {}).get("model", {}).get("name", "unknown_model")
@@ -191,7 +191,7 @@ def finalize_results(timestamp: str, hf_repo_id: Optional[str] = None, hf_varian
 
     if hf_repo_id:
         try:
-            from .hf_uploader import upload_results
+            from twinkle_eval.integrations.huggingface import upload_results
             model_name = base_result["config"].get("model", {}).get("name", "unknown_model")
             upload_results(
                 repo_id=hf_repo_id,

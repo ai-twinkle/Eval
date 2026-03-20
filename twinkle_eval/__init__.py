@@ -27,10 +27,10 @@ __version__ = "1.4.3"
 __author__ = "Twinkle AI Team"
 __license__ = "MIT"
 
-from .config import ConfigurationManager, load_config
+from .core.config import ConfigurationManager, load_config
 from .datasets import Dataset, find_all_evaluation_files
-from .evaluators import Evaluator, RateLimiter
-from .exceptions import (
+from .runners.evaluator import Evaluator, RateLimiter
+from .core.exceptions import (
     ConfigurationError,
     DatasetError,
     EvaluationError,

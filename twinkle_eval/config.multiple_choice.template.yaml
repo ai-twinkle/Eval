@@ -1,0 +1,36 @@
+llm_api:
+  base_url: "http://your-openai-compatible-server/v1"  # API 伺服器網址
+  api_key: "your-api-key"                              # API 金鑰
+  disable_ssl_verify: false                            # 是否停用 SSL 驗證
+  api_rate_limit: -1                                   # 每秒請求限制（-1 為不限制）
+  max_retries: 3                                       # API 呼叫失敗時的重試次數
+  timeout: 60                                          # API 呼叫的超時時間（秒）
+
+model:
+  name: "model-name"      # 模型名稱
+  temperature: 0.0        # 溫度參數（0.0 為確定性輸出）
+  top_p: 0.9              # Top-p 機率閾值
+  max_tokens: 512         # 最大輸出 token 數（選擇題不需要太長）
+  frequency_penalty: 0.0
+  presence_penalty: 0.0
+  extra_body:             # 可傳遞 API 額外參數，例如 {"chat_template_kwargs": {...}}
+
+evaluation:
+  dataset_paths:          # 資料集目錄路徑（必填，支援多個）
+    - "datasets/tmmluplus/"
+    - "datasets/mmlu_pro/"
+
+  # 評測方法（擇一）：
+  #   pattern     - 正規表達式比對文字，通用首選
+  #   box         - 提取 \boxed{} 內容，適合推理模型
+  #   logit       - 比較各選項 log-probability，適合多選項題（A–J），不依賴格式
+  evaluation_method: "pattern"
+
+  datasets_prompt_map:    # 指定特定資料集使用哪種語言的 system prompt
+    "datasets/mmlu_pro/": "en"
+
+  shuffle_options: true   # 隨機排列選項，消除位置偏好（建議開啟）
+  repeat_runs: 1          # 重複執行次數（>1 時計算平均值與標準差）
+
+logging:
+  level: "INFO"           # DEBUG / INFO / WARNING / ERROR

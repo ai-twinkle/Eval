@@ -1,0 +1,36 @@
+llm_api:
+  base_url: "http://your-openai-compatible-server/v1"  # API 伺服器網址
+  api_key: "your-api-key"                              # API 金鑰
+  disable_ssl_verify: false                            # 是否停用 SSL 驗證
+  api_rate_limit: -1                                   # 每秒請求限制（-1 為不限制）
+  max_retries: 3                                       # API 呼叫失敗時的重試次數
+  timeout: 120                                         # 數學推理回應較長，建議 120 秒以上
+
+model:
+  name: "model-name"      # 模型名稱
+  temperature: 0.0        # 溫度參數
+  top_p: 0.9
+  max_tokens: 4096        # 推理模型 chain-of-thought 較長，需要更多 token
+  frequency_penalty: 0.0
+  presence_penalty: 0.0
+  extra_body:
+
+evaluation:
+  dataset_paths:          # 資料集目錄路徑（必填，支援多個）
+    - "datasets/gsm8k/"
+    - "datasets/aime2025/"
+
+  # math 評測使用 MathExtractor（提取 \boxed{}）+ MathRulerScorer（語意等價判斷）
+  # 語意等價：0.5 / 1/2 / \frac{1}{2} 會全部判為正確
+  # 需要安裝：pip install twinkle-eval[math]
+  evaluation_method: "math"
+
+  dataset_overrides:
+    # 數學資料集必須關閉 system_prompt，避免選擇題格式指令干擾推理
+    "datasets/gsm8k/":
+      system_prompt_enabled: false
+    "datasets/aime2025/":
+      system_prompt_enabled: false
+
+logging:
+  level: "INFO"           # DEBUG / INFO / WARNING / ERROR

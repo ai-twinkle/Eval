@@ -7,7 +7,7 @@ from openai import OpenAI
 from openai.types.chat import ChatCompletion
 
 from twinkle_eval.core.abc import LLM
-from twinkle_eval.logger import log_error
+from twinkle_eval.core.logger import log_error
 
 
 class OpenAIModel(LLM):

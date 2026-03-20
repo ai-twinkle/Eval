@@ -12,12 +12,12 @@ from typing import List, Optional
 # 確保能夠正確匯入模組
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-from .evaluation_strategies import EvaluationStrategyFactory
-from .logger import log_error
+from .metrics import get_available_methods
+from .core.logger import log_error
 from .main import create_cli_parser
 from .main import main as main_func
 from .models import LLMFactory
-from .results_exporters import ResultsExporterFactory
+from .exporters import ResultsExporterFactory
 
 
 def main(args: Optional[List[str]] = None) -> int:
@@ -99,7 +99,7 @@ def cli_list_llms():
 def cli_list_strategies():
     """列出支援的評測策略"""
     print("🎯 支援的評測策略:")
-    for strategy in EvaluationStrategyFactory.get_available_types():
+    for strategy in get_available_methods():
         print(f"  - {strategy}")
 
 

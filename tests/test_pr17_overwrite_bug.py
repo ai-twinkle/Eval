@@ -138,8 +138,9 @@ class TestEndToEndWithMockLLM:
         'a' 模式（修正後）：評測兩個 150 題檔案後，
         JSONL 應有 300 行，兩個檔案的資料都完整保留。
         """
-        from twinkle_eval.evaluators import Evaluator
-        from twinkle_eval.evaluation_strategies import PatternMatchingStrategy
+        from twinkle_eval.runners.evaluator import Evaluator
+        from twinkle_eval.metrics.extractors.pattern import PatternExtractor
+        from twinkle_eval.metrics.scorers.exact import ExactMatchScorer
 
         mock_llm = MagicMock()
         mock_llm.call.return_value = _make_fake_completion("A")
@@ -150,7 +151,8 @@ class TestEndToEndWithMockLLM:
         }
         evaluator = Evaluator(
             llm=mock_llm,
-            evaluation_strategy=PatternMatchingStrategy(),
+            extractor=PatternExtractor(),
+            scorer=ExactMatchScorer(),
             config=config,
         )
 
@@ -164,8 +166,8 @@ class TestEndToEndWithMockLLM:
                 return jsonl_path
             return original_join(*args)
 
-        with patch("twinkle_eval.evaluators.os.makedirs"), \
-             patch("twinkle_eval.evaluators.os.path.join", side_effect=patched_join):
+        with patch("twinkle_eval.runners.evaluator.os.makedirs"), \
+             patch("twinkle_eval.runners.evaluator.os.path.join", side_effect=patched_join):
 
             evaluator.evaluate_file(PART_A, timestamp)
             evaluator.evaluate_file(PART_B, timestamp)

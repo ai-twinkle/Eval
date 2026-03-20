@@ -3,11 +3,11 @@ from typing import Any, Dict
 
 import yaml
 
-from .exceptions import ConfigurationError, ValidationError
-from .logger import log_error, log_info
-from .metrics import create_metric_pair, get_available_methods
-from .models import LLMFactory
-from .validators import ConfigValidator, DatasetValidator
+from twinkle_eval.core.exceptions import ConfigurationError, ValidationError
+from twinkle_eval.core.logger import log_error, log_info
+from twinkle_eval.metrics import create_metric_pair, get_available_methods
+from twinkle_eval.models import LLMFactory
+from twinkle_eval.core.validators import ConfigValidator, DatasetValidator
 
 
 class ConfigurationManager:
@@ -204,7 +204,7 @@ class ConfigurationManager:
         self._validate_google_auth_config(config, "Google Sheets")
 
         try:
-            from .integrations.google import GoogleSheetsService
+            from twinkle_eval.integrations.google import GoogleSheetsService
 
             sheets_service = GoogleSheetsService(config)
             sheets_service.service.spreadsheets().get(spreadsheetId=spreadsheet_id).execute()
@@ -217,7 +217,7 @@ class ConfigurationManager:
         self._validate_google_auth_config(config, "Google Drive")
 
         try:
-            from .integrations.google import GoogleDriveUploader
+            from twinkle_eval.integrations.google import GoogleDriveUploader
 
             drive_uploader = GoogleDriveUploader(config)
 

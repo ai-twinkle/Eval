@@ -16,7 +16,7 @@ from tqdm import tqdm
 
 from datasets import get_dataset_config_names, get_dataset_split_names, load_dataset
 
-from twinkle_eval.logger import log_error, log_info, log_warning
+from twinkle_eval.core.logger import log_error, log_info, log_warning
 
 
 def _index_to_label(idx: int) -> str:

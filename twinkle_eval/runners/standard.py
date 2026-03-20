@@ -10,12 +10,12 @@ from typing import Any, Dict, List, Optional
 
 import numpy as np
 
-from twinkle_eval.config import load_config
+from twinkle_eval.core.config import load_config
 from twinkle_eval.datasets import find_all_evaluation_files
-from twinkle_eval.evaluators import Evaluator
-from twinkle_eval.exceptions import ConfigurationError, EvaluationError
+from twinkle_eval.runners.evaluator import Evaluator
+from twinkle_eval.core.exceptions import ConfigurationError, EvaluationError
 from twinkle_eval.exporters import ResultsExporterFactory
-from twinkle_eval.logger import log_error, log_info
+from twinkle_eval.core.logger import log_error, log_info
 from twinkle_eval.metrics import create_metric_pair
 
 

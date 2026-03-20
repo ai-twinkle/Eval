@@ -5,8 +5,8 @@ from typing import Any, Dict, List, Optional
 
 import yaml
 
-from .exceptions import ConfigurationError, ValidationError
-from .metrics import get_available_methods
+from twinkle_eval.core.exceptions import ConfigurationError, ValidationError
+from twinkle_eval.metrics import get_available_methods
 
 
 class ConfigValidator:
