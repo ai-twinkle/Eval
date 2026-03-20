@@ -1,41 +1,25 @@
+"""結果輸出模組。"""
+
 import csv
 import json
 import os
-from abc import ABC, abstractmethod
 from typing import Any, Dict, List, Optional, Type
 
 import pandas as pd
 
-
-class ResultsExporter(ABC):
-    """Abstract base class for results exporters."""
-
-    def __init__(self, config: Optional[Dict[str, Any]] = None):
-        self.config = config or {}
-
-    @abstractmethod
-    def export(self, results: Dict[str, Any], output_path: str) -> str:
-        """Export results to specified format."""
-        pass
-
-    @abstractmethod
-    def get_file_extension(self) -> str:
-        """Get the file extension for this exporter."""
-        pass
+from twinkle_eval.core.abc import ResultsExporter
 
 
 class JSONExporter(ResultsExporter):
-    """Export results to JSON format."""
+    """JSON 格式輸出器。"""
 
     def get_file_extension(self) -> str:
         return ".json"
 
     def export(self, results: Dict[str, Any], output_path: str) -> str:
-        """Export results to JSON file."""
         if not output_path.endswith(self.get_file_extension()):
             output_path += self.get_file_extension()
 
-        # Ensure environment config is included
         enhanced_results = self._enhance_with_environment(results)
 
         with open(output_path, "w", encoding="utf-8") as f:
@@ -44,10 +28,8 @@ class JSONExporter(ResultsExporter):
         return output_path
 
     def _enhance_with_environment(self, results: Dict[str, Any]) -> Dict[str, Any]:
-        """Ensure environment config is included in results."""
         enhanced = results.copy()
 
-        # Check if config and environment already exist
         if "config" not in enhanced:
             enhanced["config"] = {}
 
@@ -73,17 +55,15 @@ class JSONExporter(ResultsExporter):
 
 
 class CSVExporter(ResultsExporter):
-    """Export results to CSV format."""
+    """CSV 格式輸出器。"""
 
     def get_file_extension(self) -> str:
         return ".csv"
 
     def export(self, results: Dict[str, Any], output_path: str) -> str:
-        """Export results to CSV file."""
         if not output_path.endswith(self.get_file_extension()):
             output_path += self.get_file_extension()
 
-        # Flatten the results structure for CSV export
         flattened_data = self._flatten_results(results)
 
         with open(output_path, "w", newline="", encoding="utf-8") as f:
@@ -95,7 +75,6 @@ class CSVExporter(ResultsExporter):
         return output_path
 
     def _flatten_results(self, results: Dict[str, Any]) -> List[Dict[str, Any]]:
-        """Flatten nested results structure for CSV export."""
         flattened = []
 
         timestamp = results.get("timestamp", "")
@@ -140,25 +119,22 @@ class CSVExporter(ResultsExporter):
 
 
 class ExcelExporter(ResultsExporter):
-    """Export results to Excel format."""
+    """Excel 格式輸出器。"""
 
     def get_file_extension(self) -> str:
         return ".xlsx"
 
     def export(self, results: Dict[str, Any], output_path: str) -> str:
-        """Export results to Excel file."""
         if not output_path.endswith(self.get_file_extension()):
             output_path += self.get_file_extension()
 
         with pd.ExcelWriter(output_path, engine="openpyxl") as writer:
-            # Summary sheet
             summary_data = self._create_summary_data(results)
             summary_df = pd.DataFrame(summary_data)
             summary_df.to_excel(writer, sheet_name="Summary", index=False)
 
-            # Detailed results for each dataset
             for dataset_path, dataset_data in results.get("dataset_results", {}).items():
-                sheet_name = os.path.basename(dataset_path)[:30]  # Excel sheet name limit
+                sheet_name = os.path.basename(dataset_path)[:30]
                 detailed_data = self._create_detailed_data(dataset_data)
                 if detailed_data:
                     detailed_df = pd.DataFrame(detailed_data)
@@ -167,9 +143,7 @@ class ExcelExporter(ResultsExporter):
         return output_path
 
     def _create_summary_data(self, results: Dict[str, Any]) -> List[Dict[str, Any]]:
-        """Create summary data for Excel export."""
         summary = []
-
         config = results.get("config", {})
         environment = config.get("environment", {})
 
@@ -191,7 +165,6 @@ class ExcelExporter(ResultsExporter):
         return summary
 
     def _create_detailed_data(self, dataset_data: Dict[str, Any]) -> List[Dict[str, Any]]:
-        """Create detailed data for Excel export."""
         detailed = []
 
         for file_result in dataset_data.get("results", []):
@@ -210,13 +183,12 @@ class ExcelExporter(ResultsExporter):
 
 
 class HTMLExporter(ResultsExporter):
-    """Export results to HTML format."""
+    """HTML 格式輸出器。"""
 
     def get_file_extension(self) -> str:
         return ".html"
 
     def export(self, results: Dict[str, Any], output_path: str) -> str:
-        """Export results to HTML file."""
         if not output_path.endswith(self.get_file_extension()):
             output_path += self.get_file_extension()
 
@@ -228,20 +200,13 @@ class HTMLExporter(ResultsExporter):
         return output_path
 
     def _generate_html(self, results: Dict[str, Any]) -> str:
-        """Generate HTML content from results."""
-        # Ensure environment config is included
         enhanced_results = self._enhance_with_environment(results)
-
-        # Load detailed results from referenced files
         enhanced_results = self._load_detailed_results(enhanced_results)
-
         return self._generate_summary_html(enhanced_results)
 
     def _enhance_with_environment(self, results: Dict[str, Any]) -> Dict[str, Any]:
-        """Ensure environment config is included in results."""
         enhanced = results.copy()
 
-        # Check if config and environment already exist
         if "config" not in enhanced:
             enhanced["config"] = {}
 
@@ -266,23 +231,19 @@ class HTMLExporter(ResultsExporter):
         return enhanced
 
     def _load_detailed_results(self, results: Dict[str, Any]) -> Dict[str, Any]:
-        """Load detailed results from referenced files."""
         enhanced = results.copy()
 
         for dataset_path, dataset_data in enhanced.get("dataset_results", {}).items():
             for file_result in dataset_data.get("results", []):
-                # Check if individual_runs contains result file references
                 individual_runs = file_result.get("individual_runs", {})
                 result_files = individual_runs.get("results", [])
 
                 if result_files:
-                    # Load the first result file for detailed data
                     result_file_path = result_files[0]
                     try:
                         with open(result_file_path, "r", encoding="utf-8") as f:
                             detailed_data = json.load(f)
 
-                        # Add detailed data to file_result
                         if "details" in detailed_data:
                             file_result["details"] = detailed_data["details"]
                             file_result["file"] = detailed_data.get(
@@ -299,7 +260,6 @@ class HTMLExporter(ResultsExporter):
         return enhanced
 
     def _generate_summary_html(self, results: Dict[str, Any]) -> str:
-        """Generate HTML content for summary and detailed results."""
         timestamp = results.get("timestamp", "")
         config = results.get("config", {})
         environment = config.get("environment", {})
@@ -307,7 +267,6 @@ class HTMLExporter(ResultsExporter):
         parallel_config = environment.get("parallel_config", {})
         system_info = environment.get("system_info", {})
 
-        # Check if we have detailed results data
         has_detailed_data = False
         for dataset_path, dataset_data in results.get("dataset_results", {}).items():
             for file_result in dataset_data.get("results", []):
@@ -318,10 +277,8 @@ class HTMLExporter(ResultsExporter):
                 break
 
         if has_detailed_data:
-            # Handle detailed result display
             title = "Twinkle Eval 詳細結果"
 
-            # Get all detailed results from all datasets
             all_details = []
             all_files = []
             total_accuracy = 0
@@ -337,7 +294,6 @@ class HTMLExporter(ResultsExporter):
                         )
                         total_files += 1
 
-            # Calculate overall accuracy
             overall_accuracy = total_accuracy / total_files if total_files > 0 else 0
             file_paths = ", ".join(all_files) if all_files else ""
             details = all_details
@@ -378,8 +334,6 @@ class HTMLExporter(ResultsExporter):
         .stat-item {{ background-color: #ffffff; padding: 15px; border-radius: 10px; flex: 1; text-align: center; box-shadow: 0 2px 5px rgba(0,0,0,0.1); }}
         .stat-number {{ font-size: 2em; font-weight: bold; color: #007bff; }}
         .stat-label {{ color: #6c757d; margin-top: 5px; }}
-
-        /* Tab styles */
         .tabs {{ margin: 20px 0; }}
         .tab-buttons {{ display: flex; background-color: #f8f9fa; border-radius: 10px 10px 0 0; border: 1px solid #ddd; border-bottom: none; }}
         .tab-button {{ flex: 1; padding: 15px; background: none; border: none; cursor: pointer; font-size: 16px; font-weight: bold; transition: all 0.3s ease; }}
@@ -398,25 +352,17 @@ class HTMLExporter(ResultsExporter):
         }}
 
         function showTab(tabName) {{
-            // Hide all tab contents
             document.querySelectorAll('.tab-content').forEach(content => {{
                 content.classList.remove('active');
             }});
-
-            // Remove active class from all buttons
             document.querySelectorAll('.tab-button').forEach(button => {{
                 button.classList.remove('active');
             }});
-
-            // Show selected tab content
             document.getElementById(tabName + '-tab').classList.add('active');
-
-            // Add active class to clicked button
             document.querySelector(`[onclick="showTab('${{tabName}}')"]`).classList.add('active');
         }}
 
         window.onload = function() {{
-            // Show first tab by default
             showTab('correct');
         }}
     </script>
@@ -480,7 +426,6 @@ class HTMLExporter(ResultsExporter):
     </div>
 """
 
-            # Add tabbed questions
             correct_details = [d for d in details if d.get("is_correct", False)]
             incorrect_details = [d for d in details if not d.get("is_correct", False)]
 
@@ -583,7 +528,6 @@ class HTMLExporter(ResultsExporter):
     </div>
 """
         else:
-            # Handle summary result display
             html = f"""
 <!DOCTYPE html>
 <html>
@@ -654,7 +598,6 @@ class HTMLExporter(ResultsExporter):
     </div>
 """
 
-            # Add dataset results for summary
             for dataset_path, dataset_data in results.get("dataset_results", {}).items():
                 html += f"""
     <div class="dataset">
@@ -694,9 +637,9 @@ class HTMLExporter(ResultsExporter):
 
 
 class ResultsExporterFactory:
-    """Factory class for creating results exporters."""
+    """結果輸出器工廠類別。"""
 
-    _registry: Dict[str, Type[ResultsExporter]] = {
+    _registry: Dict[str, Optional[Type[ResultsExporter]]] = {
         "json": JSONExporter,
         "csv": CSVExporter,
         "excel": ExcelExporter,
@@ -705,38 +648,38 @@ class ResultsExporterFactory:
     }
 
     @classmethod
-    def register_exporter(cls, name: str, exporter_class: Type[ResultsExporter]):
-        """Register a new results exporter."""
+    def register_exporter(cls, name: str, exporter_class: Type[ResultsExporter]) -> None:
+        """向工廠登錄新的輸出器。"""
         if not issubclass(exporter_class, ResultsExporter):
-            raise ValueError(f"Exporter class must inherit from ResultsExporter base class")
+            raise ValueError("Exporter class must inherit from ResultsExporter base class")
         cls._registry[name] = exporter_class
 
     @classmethod
     def create_exporter(
         cls, exporter_type: str, config: Optional[Dict[str, Any]] = None
     ) -> ResultsExporter:
-        """Create a results exporter instance based on type."""
+        """依類型名稱建立輸出器實例。"""
         if exporter_type not in cls._registry:
             available_types = ", ".join(cls._registry.keys())
             raise ValueError(
-                f"Unsupported exporter type: {exporter_type}. Available types: {available_types}"
+                f"不支援的輸出格式: {exporter_type}. 可用格式: {available_types}"
             )
 
         # 延遲載入 Google Sheets exporter 以避免循環匯入
         if exporter_type == "google_sheets" and cls._registry[exporter_type] is None:
             try:
-                from .google_services import GoogleSheetsExporter
+                from twinkle_eval.integrations.google import GoogleSheetsExporter
 
                 cls._registry[exporter_type] = GoogleSheetsExporter
             except ImportError as e:
                 raise ValueError(f"Google Sheets exporter 不可用，請確認已安裝相關依賴: {e}")
 
         exporter_class = cls._registry[exporter_type]
-        return exporter_class(config)
+        return exporter_class(config)  # type: ignore[misc]
 
     @classmethod
     def get_available_types(cls) -> List[str]:
-        """Get list of available exporter types."""
+        """回傳所有已登錄的輸出格式列表。"""
         return list(cls._registry.keys())
 
     @classmethod
@@ -747,12 +690,11 @@ class ResultsExporterFactory:
         formats: List[str],
         config: Optional[Dict[str, Any]] = None,
     ) -> List[str]:
-        """Export results to multiple formats."""
+        """將結果匯出為多種格式。"""
         exported_files = []
 
         for format_type in formats:
             try:
-                # 為 google_sheets 提供配置參數
                 if format_type == "google_sheets" and config and "google_services" in config:
                     google_sheets_config = config["google_services"].get("google_sheets", {})
                     exporter = cls.create_exporter(format_type, google_sheets_config)
@@ -767,3 +709,13 @@ class ResultsExporterFactory:
                 print(f"⚠️ Warning: Failed to export to {format_type}: {e}")
 
         return exported_files
+
+
+__all__ = [
+    "ResultsExporter",
+    "JSONExporter",
+    "CSVExporter",
+    "ExcelExporter",
+    "HTMLExporter",
+    "ResultsExporterFactory",
+]

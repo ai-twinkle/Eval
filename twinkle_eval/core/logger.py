@@ -47,7 +47,7 @@ def upload_logs_to_drive(config: Optional[Dict[str, Any]] = None) -> List[Dict[s
         return []
 
     try:
-        from .google_services import GoogleDriveUploader
+        from twinkle_eval.integrations.google import GoogleDriveUploader
 
         drive_config = config["google_drive"]
         uploader = GoogleDriveUploader(drive_config)

@@ -1,68 +1,33 @@
-from abc import ABC, abstractmethod
-from typing import Any, Dict, Type
+"""OpenAI 相容 API 的 LLM 實作。"""
+
+from typing import Any, Dict, Optional
 
 import httpx
 from openai import OpenAI
 from openai.types.chat import ChatCompletion
 
-from .logger import log_error
-
-
-class LLM(ABC):
-    """Abstract base class for all LLM implementations."""
-
-    def __init__(self, config: Dict[str, Any]):
-        self.config = config
-
-    @abstractmethod
-    def call(
-        self,
-        question_text: str,
-        prompt_lang: str = "zh",
-        eval_method: str = "",
-        system_prompt_enabled: bool = True,
-        num_samples: int = 1,
-        model_overrides: Dict[str, Any] | None = None,
-    ) -> ChatCompletion:
-        """Call the LLM with a question and return the response."""
-        pass
-
-    @abstractmethod
-    def validate_config(self) -> bool:
-        """Validate the configuration for this LLM."""
-        pass
-
-    def score_continuation(self, context: str, continuation: str) -> float:
-        """計算 log P(continuation | context)，用於 logit 評測策略。
-
-        透過 completions API 的 echo 模式取得 context+continuation 的 token logprobs，
-        並回傳 continuation 部分的對數機率加總。
-        子類別應覆寫此方法以提供正確實作；預設拋出 NotImplementedError。
-        """
-        raise NotImplementedError(
-            f"{self.__class__.__name__} 尚未實作 score_continuation()，"
-            "無法使用 logit 評測策略。"
-        )
+from twinkle_eval.core.abc import LLM
+from twinkle_eval.core.logger import log_error
 
 
 class OpenAIModel(LLM):
-    """OpenAI-compatible LLM implementation."""
+    """OpenAI 相容格式的 LLM 實作。"""
 
-    def __init__(self, config: Dict[str, Any]):
+    def __init__(self, config: Dict[str, Any]) -> None:
         super().__init__(config)
         self.validate_config()
         self._initialize_client()
 
     def validate_config(self) -> bool:
-        """Validate OpenAI-specific configuration."""
+        """驗證 OpenAI 相容格式所需的配置欄位。"""
         required_keys = ["api_key", "base_url"]
         for key in required_keys:
             if key not in self.config["llm_api"]:
-                raise ValueError(f"Missing required config key: llm_api.{key}")
+                raise ValueError(f"缺少必要的配置欄位: llm_api.{key}")
         return True
 
-    def _initialize_client(self):
-        """Initialize the OpenAI client with proper configuration."""
+    def _initialize_client(self) -> None:
+        """初始化 OpenAI 客戶端。"""
         api_config = self.config["llm_api"]
 
         if api_config.get("disable_ssl_verify", False):
@@ -85,7 +50,7 @@ class OpenAIModel(LLM):
         eval_method: str,
         system_prompt_enabled: bool,
     ) -> list:
-        """Build message list based on evaluation method."""
+        """依評測方法建立訊息列表。"""
         eval_config = self.config["evaluation"]
         method = eval_method or eval_config["evaluation_method"]
 
@@ -113,14 +78,14 @@ class OpenAIModel(LLM):
         eval_method: str = "",
         system_prompt_enabled: bool = True,
         num_samples: int = 1,
-        model_overrides: Dict[str, Any] | None = None,
+        model_overrides: Optional[Dict[str, Any]] = None,
     ) -> ChatCompletion:
-        """Call the OpenAI API with the given question."""
+        """呼叫 OpenAI 相容 API 並回傳回應。"""
         messages = self._build_messages(question_text, prompt_lang, eval_method, system_prompt_enabled)
         model_config = self.config["model"]
         overrides = model_overrides or {}
 
-        payload = {
+        payload: Dict[str, Any] = {
             "model": model_config["name"],
             "temperature": overrides.get("temperature", model_config["temperature"]),
             "top_p": overrides.get("top_p", model_config["top_p"]),
@@ -131,7 +96,7 @@ class OpenAIModel(LLM):
         if num_samples > 1:
             payload["n"] = num_samples
 
-        # Add optional parameters if they exist
+        # 加入選用參數
         optional_params = ["frequency_penalty", "presence_penalty"]
         for param in optional_params:
             if param in overrides:
@@ -154,15 +119,13 @@ class OpenAIModel(LLM):
 
         使用 /v1/completions 端點的 echo 模式：將 context + continuation 作為 prompt
         傳入，取得所有 token 的 logprob，再加總 continuation 部分的 log-likelihood。
-        vLLM、llama.cpp、OpenAI (legacy completions) 均支援此功能。
 
         Args:
             context:      題目 context，通常以 "\\nAnswer:" 結尾。
-            continuation: 要評分的選項文字，如 " A"、" B"（含 leading space，與 lm-harness 一致）。
+            continuation: 要評分的選項文字，如 " A"（含 leading space，與 lm-harness 一致）。
 
         Returns:
-            continuation 部分的 log-likelihood（越高表示模型越傾向該選項）。
-            若 API 不支援或發生錯誤，回傳 float("-inf")。
+            continuation 部分的 log-likelihood。若 API 不支援或發生錯誤，回傳 float("-inf")。
         """
         model_config = self.config["model"]
         full_prompt = context + continuation
@@ -181,7 +144,6 @@ class OpenAIModel(LLM):
             if not token_logprobs or not tokens:
                 return float("-inf")
 
-            # 找出 continuation 開始的字元位置，累加對應 token 的 logprob
             context_char_len = len(context)
             cumulative = 0
             logprob_sum = 0.0
@@ -197,33 +159,3 @@ class OpenAIModel(LLM):
         except Exception as e:
             log_error(f"score_continuation 失敗（模型: {model_config['name']}）: {e}")
             return float("-inf")
-
-
-class LLMFactory:
-    """Factory class for creating LLM instances."""
-
-    _registry: Dict[str, Type[LLM]] = {
-        "openai": OpenAIModel,
-    }
-
-    @classmethod
-    def register_llm(cls, name: str, llm_class: Type[LLM]):
-        """Register a new LLM implementation."""
-        cls._registry[name] = llm_class
-
-    @classmethod
-    def create_llm(cls, llm_type: str, config: Dict[str, Any]) -> LLM:
-        """Create an LLM instance based on type."""
-        if llm_type not in cls._registry:
-            available_types = ", ".join(cls._registry.keys())
-            raise ValueError(
-                f"Unsupported LLM type: {llm_type}. Available types: {available_types}"
-            )
-
-        llm_class = cls._registry[llm_type]
-        return llm_class(config)
-
-    @classmethod
-    def get_available_types(cls) -> list:
-        """Get list of available LLM types."""
-        return list(cls._registry.keys())

@@ -92,10 +92,21 @@ Changelog = "https://github.com/ai-twinkle/Eval/releases"
 twinkle-eval = "twinkle_eval.cli:main"
 
 [tool.setuptools]
-packages = ["twinkle_eval"]
+packages = [
+    "twinkle_eval",
+    "twinkle_eval.core",
+    "twinkle_eval.datasets",
+    "twinkle_eval.exporters",
+    "twinkle_eval.integrations",
+    "twinkle_eval.metrics",
+    "twinkle_eval.metrics.extractors",
+    "twinkle_eval.metrics.scorers",
+    "twinkle_eval.models",
+    "twinkle_eval.runners",
+]
 
 [tool.setuptools.package-data]
-twinkle_eval = ["*.yaml", "*.yml", "config.template.yaml"]
+twinkle_eval = ["*.yaml", "*.yml", "config.template.yaml", "config.multiple_choice.template.yaml", "config.math.template.yaml"]
 
 [tool.black]
 line-length = 100

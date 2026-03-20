@@ -130,9 +130,10 @@ logs/
 # results directory
 results/
 
-# real config file
+# real config files (contain API keys)
 config.yaml
 config_test_*.yaml
+configs/*.yaml
 
 # personal analysis notes (not for commit)
 issues_analysis.md

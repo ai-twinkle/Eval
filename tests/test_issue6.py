@@ -10,7 +10,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from twinkle_eval.exceptions import EvaluationError
+from twinkle_eval.core.exceptions import EvaluationError
 
 
 def _make_runner_with_config(dataset_paths: list):

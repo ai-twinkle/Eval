@@ -1,4 +1,4 @@
-"""資料集載入和處理模組
+"""資料集載入和處理模組。
 
 支援多種檔案格式的資料集載入，包括 JSON、JSONL、Parquet、Arrow、CSV 和 TSV
 也支援從 HuggingFace Hub 下載資料集
@@ -16,7 +16,7 @@ from tqdm import tqdm
 
 from datasets import get_dataset_config_names, get_dataset_split_names, load_dataset
 
-from .logger import log_error, log_info, log_warning
+from twinkle_eval.core.logger import log_error, log_info, log_warning
 
 
 def _index_to_label(idx: int) -> str:
@@ -105,11 +105,11 @@ class Dataset:
         self.rank = rank
         self.data = self._load_data()
 
-    def _load_data(self):
+    def _load_data(self) -> list:
         ext = os.path.splitext(self.file_path)[-1].lower()
         print(f"正在讀取: {self.file_path}")
         try:
-            if ext == ".json":  # [{}...]
+            if ext == ".json":
                 with open(self.file_path, "r", encoding="utf-8") as f:
                     data = json.load(f)
             elif ext == ".jsonl":
@@ -118,35 +118,32 @@ class Dataset:
             elif ext in [".parquet", ".arrow"]:
                 if ext == ".parquet":
                     df = pd.read_parquet(self.file_path)
-                else:  # .arrow
+                else:
                     table = pa.ipc.open_file(self.file_path).read_all()
                     df = table.to_pandas()
-                # 驗證必要欄位
                 if "question" not in df.columns:
                     raise ValueError(f"資料格式錯誤，檔案 `{self.file_path}` 缺少 `question` 欄位")
                 if "answer" not in df.columns:
                     raise ValueError(f"資料格式錯誤，檔案 `{self.file_path}` 缺少 `answer` 欄位")
-                # 處理 answer 欄位
                 df["answer"] = df["answer"].astype(str).str.strip().str.upper()
                 data = df.to_dict(orient="records")
             elif ext in [".csv", ".tsv"]:
                 sep = "," if ext == ".csv" else "\t"
                 df = pd.read_csv(self.file_path, sep=sep)
-                # 驗證必要欄位
                 if "question" not in df.columns:
                     raise ValueError(f"資料格式錯誤，檔案 `{self.file_path}` 缺少 `question` 欄位")
                 if "answer" not in df.columns:
                     raise ValueError(f"資料格式錯誤，檔案 `{self.file_path}` 缺少 `answer` 欄位")
-                # 處理 answer 欄位
                 df["answer"] = df["answer"].astype(str).str.strip().str.upper()
                 data = df.to_dict(orient="records")
             else:
                 raise ValueError(f"不支援的檔案格式: {ext}")
 
-            # 正規化：將 choices-list + 整數 answer 格式轉為 A/B/C/D 具名欄位格式
             data = [_normalize_record(r) for r in data]
             if self.node_id is not None and self.rank is not None:
-                log_info(f"[節點 {self.node_id} | Rank {self.rank}] 成功讀取: {self.file_path}，共 {len(data)} 題")
+                log_info(
+                    f"[節點 {self.node_id} | Rank {self.rank}] 成功讀取: {self.file_path}，共 {len(data)} 題"
+                )
             else:
                 log_info(f"成功讀取檔案: {self.file_path}，共 {len(data)} 題")
             return data
@@ -157,15 +154,14 @@ class Dataset:
     def __iter__(self):
         return iter(self.data)
 
-    def __len__(self):
+    def __len__(self) -> int:
         return len(self.data)
 
 
 def find_all_evaluation_files(dataset_root: str) -> list:
-    """在指定目錄中遞迴搜尋所有支援的評測檔案
+    """在指定目錄中遞迴搜尋所有支援的評測檔案。
 
     支援的檔案格式包括：.json, .jsonl, .parquet, .arrow, .csv, .tsv
-    會自動忽略以點開頭的隱藏目錄
 
     Args:
         dataset_root: 資料集根目錄路徑
@@ -176,14 +172,7 @@ def find_all_evaluation_files(dataset_root: str) -> list:
     Raises:
         FileNotFoundError: 當指定目錄中找不到任何支援的檔案時
     """
-    supported_extensions = {
-        ".json",
-        ".jsonl",
-        ".parquet",
-        ".arrow",
-        ".csv",
-        ".tsv",
-    }  # 支援的檔案副檔名
+    supported_extensions = {".json", ".jsonl", ".parquet", ".arrow", ".csv", ".tsv"}
     all_files = []
 
     print(f"掃描目錄： {dataset_root}")
@@ -194,7 +183,6 @@ def find_all_evaluation_files(dataset_root: str) -> list:
             ext = os.path.splitext(file)[-1].lower()
             if ext == ".lock":
                 continue
-
             if ext in supported_extensions:
                 all_files.append(file_path)
             else:
@@ -212,7 +200,7 @@ def download_huggingface_dataset(
     split: str = "test",
     output_dir: str = "datasets",
 ) -> str:
-    """從 HuggingFace Hub 下載資料集
+    """從 HuggingFace Hub 下載資料集。
 
     Args:
         dataset_name: HuggingFace 資料集名稱 (例如: "cais/mmlu")
@@ -222,23 +210,16 @@ def download_huggingface_dataset(
 
     Returns:
         str: 下載後的目錄路徑
-
-    Raises:
-        ImportError: 未安裝 datasets 套件
-        Exception: 下載失敗
     """
-    # 建立輸出目錄
     output_path = Path(output_dir)
     output_path.mkdir(parents=True, exist_ok=True)
 
-    # 如果沒有指定子集，下載所有子集
     if subset is None:
         log_info(f"開始下載 HuggingFace 資料集的所有子集: {dataset_name}")
         try:
             configs = get_dataset_config_names(dataset_name)
             downloaded_count = 0
 
-            # 使用進度條顯示下載進度
             with tqdm(configs, desc="下載子集", unit="subset") as pbar:
                 for config in pbar:
                     try:
@@ -260,7 +241,6 @@ def download_huggingface_dataset(
             log_error(f"下載所有子集失敗: {e}")
             raise e
     else:
-        # 下載指定子集
         log_info(f"開始下載 HuggingFace 資料集: {dataset_name}, 子集: {subset}")
         _download_single_subset(dataset_name, subset, split, output_dir)
         return output_dir
@@ -272,25 +252,22 @@ def _download_single_subset(
     split: str,
     output_dir: Optional[str] = None,
 ) -> None:
-    """下載單一子集的輔助函數，使用 HuggingFace 原始快取格式"""
+    """下載單一子集的輔助函數，使用 HuggingFace 原始快取格式。"""
     try:
-        # 直接下載資料集到 HuggingFace 快取目錄
         hf_dataset = load_dataset(
             dataset_name,
             name=subset,
             split=split,
             trust_remote_code=False,
         )
-
         hf_dataset.to_parquet(f"{output_dir}/{dataset_name.replace('/', '__')}/{subset}.parquet")
-
     except Exception as e:
         log_error(f"下載子集 {subset} 失敗: {e}")
         raise e
 
 
 def list_huggingface_dataset_info(dataset_name: str, subset: Optional[str] = None) -> Dict:
-    """獲取 HuggingFace 資料集資訊
+    """獲取 HuggingFace 資料集資訊。
 
     Args:
         dataset_name: HuggingFace 資料集名稱
@@ -298,22 +275,16 @@ def list_huggingface_dataset_info(dataset_name: str, subset: Optional[str] = Non
 
     Returns:
         dict: 資料集資訊，包含可用的分割、特徵等
-
-    Raises:
-        ImportError: 未安裝 datasets 套件
-        Exception: 獲取資訊失敗
     """
     try:
-        # 獲取資料集配置
         configs = get_dataset_config_names(dataset_name)
 
-        info = {
+        info: Dict = {
             "dataset_name": dataset_name,
             "configs": configs,
             "splits": {},
         }
 
-        # 如果指定了子集，只獲取該子集的資訊
         if subset:
             if subset in configs:
                 splits = get_dataset_split_names(dataset_name, config_name=subset)
@@ -321,8 +292,7 @@ def list_huggingface_dataset_info(dataset_name: str, subset: Optional[str] = Non
             else:
                 log_warning(f"子集 '{subset}' 不存在於資料集 '{dataset_name}' 中")
         else:
-            # 獲取所有配置的分割資訊
-            for config in configs[:5]:  # 限制前5個配置以避免過多請求
+            for config in configs[:5]:
                 try:
                     splits = get_dataset_split_names(dataset_name, config_name=config)
                     info["splits"][config] = splits

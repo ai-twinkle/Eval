@@ -2,7 +2,6 @@ import json
 import os
 import random
 import re
-import socket
 import time
 from math import comb
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -10,10 +9,10 @@ from typing import Any, Dict, Optional, Tuple
 
 from tqdm import tqdm
 
-from .dataset import Dataset
-from .evaluation_strategies import EvaluationStrategy
-from .logger import log_error
-from .models import LLM
+from twinkle_eval.datasets import Dataset
+from twinkle_eval.core.abc import Extractor, Scorer
+from twinkle_eval.core.logger import log_error
+from twinkle_eval.models import LLM
 
 
 def _get_node_id() -> str:
@@ -42,12 +41,12 @@ def _strip_think_blocks(text: str) -> str:
 
 
 class RateLimiter:
-    def __init__(self, calls_per_second):
+    def __init__(self, calls_per_second: float) -> None:
         self.no_limit = calls_per_second == -1
         self.interval = 1.0 / calls_per_second if not self.no_limit else 0
-        self.last_call_time = 0
+        self.last_call_time: float = 0
 
-    def wait(self):
+    def wait(self) -> None:
         if self.no_limit:
             return
         current_time = time.time()
@@ -61,7 +60,8 @@ class Evaluator:
     def __init__(
         self,
         llm: LLM,
-        evaluation_strategy: EvaluationStrategy,
+        extractor: Extractor,
+        scorer: Scorer,
         config: dict,
         eval_method: str = "",
         system_prompt_enabled: bool = True,
@@ -69,9 +69,10 @@ class Evaluator:
         pass_k: int = 1,
         shuffle_options: bool = False,
         model_overrides: Optional[Dict[str, Any]] = None,
-    ):
+    ) -> None:
         self.llm = llm
-        self.evaluation_strategy = evaluation_strategy
+        self.extractor = extractor
+        self.scorer = scorer
         self.config = config
         self.eval_method = eval_method or config.get("evaluation", {}).get("evaluation_method", "")
         self.system_prompt_enabled = system_prompt_enabled
@@ -81,9 +82,8 @@ class Evaluator:
         self.shuffle_options = bool(shuffle_options)
         self.model_overrides = model_overrides or {}
 
-    def shuffle_question_options(self, question_data):
+    def shuffle_question_options(self, question_data: dict) -> dict:
         # 動態偵測選項鍵（避免硬編碼 A/B/C/D）
-        option_keys = [k for k in question_data if k.isupper() and len(k) <= 2 and k not in ("A",) or k in ("A", "B", "C", "D")]
         options = [(k, question_data[k]) for k in ["A", "B", "C", "D"] if k in question_data]
 
         if not options:
@@ -114,13 +114,11 @@ class Evaluator:
         total_samples = 0
         total_unparsed = 0
         detailed_results = []
-        question_stats: Dict[int, Dict[str, int]] = {}  # question_id -> {"correct": n, "total": n}
+        question_stats: Dict[int, Dict[str, int]] = {}
 
         with ThreadPoolExecutor() as executor:
-            if self.evaluation_strategy.uses_logprobs:
-                # ── logit 路徑 ────────────────────────────────────────────────
-                # 每題對每個選項各送一個 score_continuation future，全部並行執行。
-                # 這是我們相對於 lm-evaluation-harness（逐選項序列計算）的核心優勢。
+            if self.extractor.uses_logprobs:
+                # ── logit 路徑 ──────────────────────────────────────────────
                 question_records = []
 
                 for idx, q in enumerate(tqdm(dataset, desc="處理題庫中")):
@@ -137,23 +135,21 @@ class Evaluator:
                             [f"{k}: {v}" for k, v in q.items() if k not in ["question", "answer"]]
                         )
                     )
-                    # context 以 "\nAnswer:" 結尾，與 lm-harness MMLU template 一致
                     logit_context = question_text + "\nAnswer:"
 
                     try:
-                        correct_answer = self.evaluation_strategy.normalize_answer(q["answer"])
+                        correct_answer = self.scorer.normalize(q["answer"])
                     except (KeyError, AttributeError) as e:
                         log_error(f"\n Error processing question {idx + 1}: {str(e)}")
                         continue
 
-                    # 對每個選項提交一個 score_continuation future（全部並行）
                     choice_futures: Dict[str, Any] = {}
                     for choice_key in option_keys:
                         self.rate_limiter.wait()
                         choice_futures[choice_key] = executor.submit(
                             self.llm.score_continuation,
                             logit_context,
-                            f" {choice_key}",  # leading space，與 lm-harness 一致
+                            f" {choice_key}",
                         )
 
                     question_records.append({
@@ -164,24 +160,19 @@ class Evaluator:
                         "choice_futures": choice_futures,
                     })
 
-                # 收集結果：所有 future 已並行執行，此處依序取值
                 for record in tqdm(question_records, desc="處理回應中"):
                     question_id = record["idx"]
                     question_text = record["question_text"]
                     correct_answer = record["correct_answer"]
                     option_keys = record["option_keys"]
 
-                    # 取得各選項的 log-likelihood 分數
                     scores: Dict[str, float] = {
                         k: f.result() for k, f in record["choice_futures"].items()
                     }
 
-                    # 選出 log-likelihood 最高的選項
                     if scores and any(v > float("-inf") for v in scores.values()):
                         predicted_raw = max(scores, key=scores.get)
-                        predicted_answer: Optional[str] = self.evaluation_strategy.normalize_answer(
-                            predicted_raw
-                        )
+                        predicted_answer: Optional[str] = self.scorer.normalize(predicted_raw)
                     else:
                         predicted_answer = None
                         log_error(f"問題 {question_id} 的所有選項均無法取得 log-likelihood")
@@ -189,7 +180,7 @@ class Evaluator:
                     is_correct = (
                         False
                         if predicted_answer is None
-                        else self.evaluation_strategy.is_correct(predicted_answer, correct_answer)
+                        else self.scorer.score(predicted_answer, correct_answer)
                     )
 
                     question_stats.setdefault(question_id, {"correct": 0, "total": 0})
@@ -217,7 +208,7 @@ class Evaluator:
                     })
 
             else:
-                # ── 文字解析路徑 ──────────────────────────────────────────────
+                # ── 文字解析路徑 ────────────────────────────────────────────
                 future_tasks = []
                 future_to_data: Dict[Any, Any] = {}
 
@@ -237,7 +228,7 @@ class Evaluator:
                     )
 
                     try:
-                        correct_answer = self.evaluation_strategy.normalize_answer(q["answer"])
+                        correct_answer = self.scorer.normalize(q["answer"])
                     except (KeyError, AttributeError) as e:
                         log_error(f"\n Error processing question {idx + 1}: {str(e)}")
                         continue
@@ -283,17 +274,17 @@ class Evaluator:
                                 f"問題 {question_id} 的 content 與 reasoning_content 均為 null，無法提取答案"
                             )
 
-                        predicted_raw = self.evaluation_strategy.extract_answer(extraction_source)
+                        predicted_raw = self.extractor.extract(extraction_source)
                         predicted_answer = (
                             None
                             if predicted_raw is None
-                            else self.evaluation_strategy.normalize_answer(predicted_raw)
+                            else self.scorer.normalize(predicted_raw)
                         )
 
                         is_correct = (
                             False
                             if predicted_answer is None
-                            else self.evaluation_strategy.is_correct(predicted_answer, correct_answer)
+                            else self.scorer.score(predicted_answer, correct_answer)
                         )
 
                         question_stats.setdefault(question_id, {"correct": 0, "total": 0})
@@ -336,16 +327,14 @@ class Evaluator:
         results_dir = "results"
         os.makedirs(results_dir, exist_ok=True)
 
-        # 分散式模式下，每個節點/rank 寫入獨立的 shard 檔案，避免並行寫入衝突
         node_id = _get_node_id()
-        rank = self.model_overrides.get("_rank", 0)  # 由 main.py 透過 model_overrides 傳入
+        rank = self.model_overrides.get("_rank", 0)
         if node_id != "0" or rank != 0:
             shard_suffix = f"_node{node_id}_rank{rank}"
         else:
             shard_suffix = ""
         results_path = os.path.join(results_dir, f"eval_results_{timestamp}{shard_suffix}.jsonl")
 
-        # 將每個 detail 項目寫入 JSONL 檔案（使用 'a' 避免多檔評測時覆蓋先前結果）
         with open(results_path, "a", encoding="utf-8") as f:
             for detail in detailed_results:
                 f.write(json.dumps(detail, ensure_ascii=False) + "\n")

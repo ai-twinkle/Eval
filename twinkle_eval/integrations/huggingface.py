@@ -7,7 +7,7 @@ import glob
 import os
 from typing import Optional
 
-from .logger import log_error, log_info
+from twinkle_eval.core.logger import log_error, log_info
 
 try:
     from huggingface_hub import HfApi, HfFileSystem
@@ -24,7 +24,7 @@ def validate_repo_id(repo_id: str) -> None:
     # 檢查格式 <namespace>/<name>
     if "/" not in repo_id or len(repo_id.split("/")) != 2:
         raise ValueError(f"無效的 repo ID 格式: {repo_id}。必須為 <namespace>/<name>")
-    
+
     # 檢查結尾
     if not repo_id.endswith("-logs-and-scores"):
         raise ValueError(f"Repo 名稱必須以 '-logs-and-scores' 結尾: {repo_id}")
@@ -60,23 +60,23 @@ def upload_results(
     timestamp: str,
 ) -> None:
     """上傳評測結果至 Hugging Face dataset repo"""
-    
+
     # 驗證 repo_id
     validate_repo_id(repo_id)
-    
+
     # 識別要上傳的檔案
-    
+
     files_to_upload = []
-    
+
     # 主要結果檔案
     results_json = os.path.join(results_dir, f"results_{timestamp}.json")
     if os.path.exists(results_json):
         files_to_upload.append(results_json)
-    
+
     # Run 檔案
     run_files = glob.glob(os.path.join(results_dir, f"eval_results_{timestamp}_run*.jsonl"))
     files_to_upload.extend(run_files)
-    
+
     if not files_to_upload:
         log_info("本次執行未找到可上傳的檔案。")
         return
@@ -86,20 +86,20 @@ def upload_results(
     variant_path = variant if variant else "default"
     # 確保 variant 安全：移除路徑分隔符、父目錄引用及前後空白
     variant_path = variant_path.strip().replace("/", "_").replace("\\", "_").replace("..", "_")
-    #確保 model name 安全
-    safe_model_name = model_name.replace("/", "__") 
+    # 確保 model name 安全
+    safe_model_name = model_name.replace("/", "__")
     target_dir = f"results/{safe_model_name}/{variant_path}"
-    
+
     api = HfApi()
-    
+
     log_info(f"正在上傳 {len(files_to_upload)} 個檔案至 {repo_id}/{target_dir}...")
-    
+
     try:
         fs = HfFileSystem()
         for file_path in files_to_upload:
             file_name = os.path.basename(file_path)
             path_in_repo = f"{target_dir}/{file_name}"
-            
+
             # 檢查檔案是否存在以防止覆蓋
             # 需求: "既有 repo 檔案不得覆蓋"
             if fs.exists(f"datasets/{repo_id}/{path_in_repo}"):
@@ -114,11 +114,11 @@ def upload_results(
                 repo_type="dataset",
                 commit_message=f"Upload evaluation results for {model_name} ({timestamp})"
             )
-            
+
         dataset_url = f"https://huggingface.co/datasets/{repo_id}/tree/main/{target_dir}"
         log_info(f"上傳完成。Dataset URL: {dataset_url}")
         print(f"✅ 上傳成功！查看網址: {dataset_url}")
-        
+
     except Exception as e:
         log_error(f"上傳至 Hugging Face 失敗: {e}")
         raise

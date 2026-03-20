@@ -7,13 +7,13 @@ from typing import Any, Dict, List, Optional
 
 import numpy as np
 
-from twinkle_eval.exceptions import ConfigurationError, EvaluationError
+from twinkle_eval.core.exceptions import ConfigurationError, EvaluationError
 
-from .config import load_config
-from .dataset import find_all_evaluation_files
-from .evaluators import Evaluator
-from .logger import log_error, log_info
-from .results_exporters import ResultsExporterFactory
+from .core.config import load_config
+from .datasets import find_all_evaluation_files
+from .runners.evaluator import Evaluator
+from .exporters import ResultsExporterFactory
+from .core.logger import log_error, log_info
 
 
 def convert_json_to_html(json_file_path: str) -> int:
@@ -57,49 +57,71 @@ def convert_json_to_html(json_file_path: str) -> int:
         return 1
 
 
-def create_default_config(output_path: str = "config.yaml") -> int:
-    """創建預設配置檔案
+def create_default_config(output_dir: str = "configs") -> int:
+    """在指定目錄下建立兩份預設配置範本：選擇題與數學評測。
 
     Args:
-        output_path: 輸出檔案路徑，預設為 config.yaml
+        output_dir: 輸出目錄，預設為 configs/
 
     Returns:
         int: 程式退出代碼（0 表示成功，1 表示失敗）
     """
     import shutil
 
+    templates = [
+        ("config.multiple_choice.template.yaml", "multiple_choice.yaml"),
+        ("config.math.template.yaml",             "math.yaml"),
+    ]
+    pkg_dir = os.path.dirname(__file__)
+
     try:
-        # 檢查檔案是否已存在
-        if os.path.exists(output_path):
-            response = input(f"⚠️  檔案 '{output_path}' 已存在，是否覆蓋？(y/N): ")
-            if response.lower() not in ["y", "yes", "是"]:
-                print("❌ 取消創建配置檔案")
+        # 建立目錄（已存在則不報錯）
+        os.makedirs(output_dir, exist_ok=True)
+
+        created: list[str] = []
+        skipped: list[str] = []
+
+        for template_name, output_name in templates:
+            template_path = os.path.join(pkg_dir, template_name)
+            output_path   = os.path.join(output_dir, output_name)
+
+            if not os.path.exists(template_path):
+                print(f"❌ 找不到範本檔案: {template_path}")
                 return 1
 
-        # 找到範本檔案
-        template_path = os.path.join(os.path.dirname(__file__), "config.template.yaml")
+            if os.path.exists(output_path):
+                response = input(f"⚠️  '{output_path}' 已存在，是否覆蓋？(y/N): ")
+                if response.lower() not in ["y", "yes", "是"]:
+                    skipped.append(output_path)
+                    continue
 
-        if not os.path.exists(template_path):
-            print(f"❌ 找不到配置範本檔案: {template_path}")
-            return 1
+            shutil.copy2(template_path, output_path)
+            created.append(output_path)
 
-        # 複製範本檔案
-        shutil.copy2(template_path, output_path)
-
-        print(f"✅ 配置檔案已創建: {output_path}")
         print()
-        print("📝 接下來請編輯配置檔案，設定：")
-        print("  1. LLM API 設定 (base_url, api_key)")
-        print("  2. 模型名稱 (model.name)")
-        print("  3. 資料集路徑 (evaluation.dataset_paths)")
+        for path in created:
+            print(f"✅ 已建立：{path}")
+        for path in skipped:
+            print(f"⏭️  已跳過：{path}")
+
+        if not created:
+            return 0
+
         print()
-        print("💡 編輯完成後，使用以下命令開始評測：")
-        print(f"   twinkle-eval --config {output_path}")
+        print("📝 接下來請編輯設定檔，填入：")
+        print("  1. llm_api.base_url  — API 端點網址")
+        print("  2. llm_api.api_key   — API 金鑰")
+        print("  3. model.name        — 模型名稱")
+        print("  4. evaluation.dataset_paths — 資料集路徑")
+        print()
+        print("💡 編輯完成後，執行評測：")
+        for path in created:
+            print(f"   twinkle-eval --config {path}")
 
         return 0
 
     except Exception as e:
-        print(f"❌ 創建配置檔案時發生錯誤: {e}")
+        print(f"❌ 建立設定檔時發生錯誤: {e}")
         return 1
 
 
@@ -160,8 +182,9 @@ class TwinkleEvalRunner:
         # 移除敏感資訊（API 金鑰）
         if "llm_api" in save_config and "api_key" in save_config["llm_api"]:
             del save_config["llm_api"]["api_key"]
-        if "evaluation_strategy_instance" in save_config:
-            del save_config["evaluation_strategy_instance"]
+        for key in ("evaluation_strategy_instance", "extractor_instance", "scorer_instance"):
+            if key in save_config:
+                del save_config[key]
 
         return save_config
 
@@ -350,10 +373,11 @@ class TwinkleEvalRunner:
         dataset_results = {}  # 儲存所有資料集的結果
 
         llm_instance = self.config["llm_instance"]
-        default_strategy = self.config["evaluation_strategy_instance"]
         strategy_config = self.config["evaluation"].get("strategy_config", {})
-        # 快取已建立的策略，避免重複實例化
-        strategy_cache = {self.config["evaluation"]["evaluation_method"]: default_strategy}
+        # 快取已建立的 (extractor, scorer) 配對，避免重複實例化
+        from .metrics import create_metric_pair
+        default_method = self.config["evaluation"]["evaluation_method"]
+        metric_cache = {default_method: create_metric_pair(default_method, strategy_config)}
 
         # 逐一評測每個資料集
         for dataset_path in dataset_paths:
@@ -361,16 +385,16 @@ class TwinkleEvalRunner:
                 ds = self._resolve_dataset_settings(dataset_path)
                 eval_method = ds["evaluation_method"]
 
-                if eval_method not in strategy_cache:
-                    from .evaluation_strategies import EvaluationStrategyFactory
-                    strategy_cache[eval_method] = EvaluationStrategyFactory.create_strategy(
-                        eval_method, strategy_config
-                    )
+                if eval_method not in metric_cache:
+                    metric_cache[eval_method] = create_metric_pair(eval_method, strategy_config)
+
+                extractor, scorer = metric_cache[eval_method]
 
                 evaluator = Evaluator(
-                    llm_instance,
-                    strategy_cache[eval_method],
-                    self.config,
+                    llm=llm_instance,
+                    extractor=extractor,
+                    scorer=scorer,
+                    config=self.config,
                     eval_method=eval_method,
                     system_prompt_enabled=ds["system_prompt_enabled"],
                     samples_per_question=ds["samples_per_question"],
@@ -460,7 +484,7 @@ class TwinkleEvalRunner:
         google_drive_config = google_services_config.get("google_drive", {})
         if google_drive_config.get("enabled", False):
             try:
-                from .google_services import GoogleDriveUploader
+                from .integrations.google import GoogleDriveUploader
 
                 uploader = GoogleDriveUploader(google_drive_config)
                 upload_info = uploader.upload_latest_files(self.start_time, "logs", "results")
@@ -547,7 +571,7 @@ HuggingFace 資料集下載:
 
     parser.add_argument("--version", action="store_true", help="顯示版本資訊")
 
-    parser.add_argument("--init", action="store_true", help="創建預設配置檔案")
+    parser.add_argument("--init", action="store_true", help="在 configs/ 目錄下建立選擇題與數學評測的預設設定檔範本")
 
     # HuggingFace 資料集下載相關命令
     parser.add_argument(
@@ -675,10 +699,10 @@ def main() -> int:
         return 0
 
     if args.list_strategies:
-        from .evaluation_strategies import EvaluationStrategyFactory
+        from .metrics import get_available_methods
 
         print("可用的評測策略:")
-        for strategy in EvaluationStrategyFactory.get_available_types():
+        for strategy in get_available_methods():
             print(f"  - {strategy}")
         return 0
 
@@ -704,7 +728,7 @@ def main() -> int:
     # HuggingFace 資料集相關命令
     if args.download_dataset:
         try:
-            from .dataset import download_huggingface_dataset
+            from .datasets import download_huggingface_dataset
 
             download_huggingface_dataset(
                 dataset_name=args.download_dataset,
@@ -720,7 +744,7 @@ def main() -> int:
 
     if args.dataset_info:
         try:
-            from .dataset import list_huggingface_dataset_info
+            from .datasets import list_huggingface_dataset_info
 
             info = list_huggingface_dataset_info(
                 dataset_name=args.dataset_info, subset=args.dataset_subset
@@ -745,7 +769,7 @@ def main() -> int:
     # 分散式結果合併與 HuggingFace 上傳
     if args.finalize_results:
         try:
-            from .finalize import finalize_results
+            from .runners.finalize import finalize_results
             return finalize_results(
                 args.finalize_results,
                 getattr(args, "hf_repo_id", None),
@@ -758,8 +782,8 @@ def main() -> int:
     # Benchmark 命令
     if args.benchmark:
         try:
-            from .benchmark import BenchmarkRunner, print_benchmark_summary, save_benchmark_results
-            from .config import load_config
+            from .runners.benchmark import BenchmarkRunner, print_benchmark_summary, save_benchmark_results
+            from .core.config import load_config
 
             config = load_config(args.config)
             runner = BenchmarkRunner(config)
