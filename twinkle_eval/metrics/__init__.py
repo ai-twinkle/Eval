@@ -4,11 +4,14 @@ from typing import Any, Dict, List, Optional, Tuple, Type
 
 from twinkle_eval.core.abc import Extractor, Scorer
 
+from .extractors.bfcl_prompt import BFCLPromptExtractor
 from .extractors.box import BoxExtractor
 from .extractors.custom import CustomRegexExtractor
 from .extractors.logit import LogitExtractor
 from .extractors.math import MathExtractor
 from .extractors.pattern import PatternExtractor
+from .extractors.tool_call import ToolCallExtractor
+from .scorers.bfcl import BFCLScorer
 from .scorers.exact import ExactMatchScorer
 from .scorers.math import MathRulerScorer
 
@@ -19,6 +22,8 @@ PRESETS: Dict[str, Tuple[Type[Extractor], Type[Scorer]]] = {
     "logit": (LogitExtractor, ExactMatchScorer),
     "math": (MathExtractor, MathRulerScorer),
     "custom_regex": (CustomRegexExtractor, ExactMatchScorer),
+    "bfcl_fc": (ToolCallExtractor, BFCLScorer),
+    "bfcl_prompt": (BFCLPromptExtractor, BFCLScorer),
 }
 
 
@@ -80,6 +85,9 @@ __all__ = [
     "LogitExtractor",
     "MathExtractor",
     "CustomRegexExtractor",
+    "ToolCallExtractor",
+    "BFCLPromptExtractor",
     "ExactMatchScorer",
     "MathRulerScorer",
+    "BFCLScorer",
 ]

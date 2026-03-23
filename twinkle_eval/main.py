@@ -71,6 +71,7 @@ def create_default_config(output_dir: str = "configs") -> int:
     templates = [
         ("config.multiple_choice.template.yaml", "multiple_choice.yaml"),
         ("config.math.template.yaml",             "math.yaml"),
+        ("config.bfcl.template.yaml",             "bfcl.yaml"),
     ]
     pkg_dir = os.path.dirname(__file__)
 

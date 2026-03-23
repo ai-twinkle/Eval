@@ -4,7 +4,7 @@
 """
 
 from abc import ABC, abstractmethod
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Optional
 
 from openai.types.chat import ChatCompletion
 
@@ -24,8 +24,17 @@ class LLM(ABC):
         system_prompt_enabled: bool = True,
         num_samples: int = 1,
         model_overrides: Optional[Dict[str, Any]] = None,
+        tools: Optional[List[Dict[str, Any]]] = None,
+        messages: Optional[List[Dict[str, Any]]] = None,
     ) -> ChatCompletion:
-        """呼叫 LLM 並回傳 ChatCompletion 格式的回應。"""
+        """呼叫 LLM 並回傳 ChatCompletion 格式的回應。
+
+        Args:
+            tools:    OpenAI tools 格式的 function 定義列表（FC 模式）。
+                      若提供則加入 API payload 的 tools 欄位。
+            messages: 預先建構的 messages 列表（BFCL 模式）。
+                      若提供則直接使用，不透過 _build_messages() 建構。
+        """
         ...
 
     @abstractmethod

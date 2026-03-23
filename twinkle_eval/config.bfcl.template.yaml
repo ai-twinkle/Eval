@@ -1,0 +1,41 @@
+llm_api:
+  base_url: "http://your-openai-compatible-server/v1" # API 伺服器網址
+  api_key: "your-api-key"                             # API 金鑰
+  disable_ssl_verify: false                           # 是否停用 SSL 驗證
+  api_rate_limit: 2                                   # 每秒請求限制（-1 為不限制）
+  max_retries: 5                                      # API 呼叫失敗時的重試次數
+  timeout: 600                                        # API 呼叫的超時時間 (秒)
+
+model:
+  name: "model-name"        # 模型名稱
+  temperature: 0.0          # 溫度參數
+  top_p: 0.9                # Top-p 機率閾值
+  max_tokens: 4096          # 最大輸出 token 數
+  frequency_penalty: 0.0    # 頻率懲罰
+  presence_penalty: 0.0     # 存在懲罰
+  extra_body:
+
+evaluation:
+  dataset_paths:
+    - "datasets/bfcl/simple/"        # BFCL simple 類別
+    - "datasets/bfcl/parallel/"      # BFCL parallel 類別（多個 function call）
+    - "datasets/bfcl/multiple/"      # BFCL multiple 類別（多個 function 定義，選一個呼叫）
+    - "datasets/bfcl/live_simple/"   # BFCL live_simple 類別
+
+  # evaluation_method 選項：
+  #   "bfcl_fc"     - Function Calling 模式：透過 tools 參數傳入 function 定義，
+  #                   解析 API 回傳的 tool_calls 欄位進行評測。
+  #                   需要模型支援 OpenAI-compatible FC 格式，
+  #                   vLLM 需設定 --tool-call-parser（如 hermes, llama3_json 等）。
+  #
+  #   "bfcl_prompt" - Prompting 模式：將 function 定義嵌入 system prompt，
+  #                   期望模型以 [func_name(param=val)] Python 格式輸出結果。
+  #                   對齊 BFCL 官方 default system prompt 格式
+  #                   (ret_fmt=python, func_doc_fmt=json, style=classic)。
+  evaluation_method: "bfcl_fc"
+
+  repeat_runs: 1            # 建議 BFCL 評測使用 1 次（ground truth 固定）
+  shuffle_options: false    # BFCL 題目無選項，此設定無效
+
+logging:
+  level: "INFO"             # 日誌等級（可選 DEBUG, INFO, WARNING, ERROR）

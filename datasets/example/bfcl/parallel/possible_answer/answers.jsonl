@@ -1,0 +1,5 @@
+{"id": "parallel_0", "ground_truth": [{"spotify.play": {"artist": ["Taylor Swift"], "duration": [20]}}, {"spotify.play": {"artist": ["Maroon 5"], "duration": [15]}}]}
+{"id": "parallel_1", "ground_truth": [{"calculate_em_force": {"b_field": [5], "area": [2], "d_time": [4]}}, {"calculate_em_force": {"b_field": [5], "area": [2], "d_time": [10]}}]}
+{"id": "parallel_2", "ground_truth": [{"calculate_resistance": {"length": [5], "area": [0.01], "resistivity": ["copper", ""]}}, {"calculate_resistance": {"length": [5], "area": [0.01], "resistivity": ["aluminum"]}}]}
+{"id": "parallel_3", "ground_truth": [{"protein_info.get_sequence_and_3D": {"protein_name": ["human HbA1c", "HbA1c"], "model_3d": [true, ""]}}, {"protein_info.get_sequence_and_3D": {"protein_name": ["normal hemoglobin"], "model_3d": [true, ""]}}, {"protein_info.get_sequence_and_3D": {"protein_name": ["rat hemoglobin"], "model_3d": [true, ""]}}]}
+{"id": "parallel_4", "ground_truth": [{"calculate_bmi": {"height": [6.0], "weight": [80]}}, {"calculate_bmi": {"height": [5.6], "weight": [60]}}]}

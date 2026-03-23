@@ -12,6 +12,8 @@ from tqdm import tqdm
 from twinkle_eval.datasets import Dataset
 from twinkle_eval.core.abc import Extractor, Scorer
 from twinkle_eval.core.logger import log_error
+from twinkle_eval.metrics.extractors.tool_call import ToolCallExtractor, convert_bfcl_functions_to_tools
+from twinkle_eval.metrics.extractors.bfcl_prompt import BFCLPromptExtractor, inject_bfcl_system_prompt
 from twinkle_eval.models import LLM
 
 
@@ -206,6 +208,178 @@ class Evaluator:
                         "usage_prompt_tokens": None,
                         "usage_total_tokens": None,
                     })
+
+            elif getattr(self.extractor, "uses_tool_calls", False):
+                # ── BFCL FC 路徑 ────────────────────────────────────────────
+                future_tasks = []
+                future_to_data: Dict[Any, Any] = {}
+
+                for idx, q in enumerate(tqdm(dataset, desc="處理題庫中")):
+                    try:
+                        correct_answer = self.scorer.normalize(q["answer"])
+                        functions = json.loads(q.get("functions", "[]"))
+                        tools = convert_bfcl_functions_to_tools(functions)
+                        messages = json.loads(q["question"])
+                    except (KeyError, json.JSONDecodeError, AttributeError) as e:
+                        log_error(f"問題 {idx + 1} 資料格式錯誤: {e}")
+                        continue
+
+                    self.rate_limiter.wait()
+                    future = executor.submit(
+                        self.llm.call,
+                        "",
+                        prompt_lang,
+                        self.eval_method,
+                        False,
+                        self.samples_per_question,
+                        self.model_overrides,
+                        tools,
+                        messages,
+                    )
+                    future_tasks.append(future)
+                    future_to_data[future] = (q.get("question", ""), correct_answer, idx)
+
+                for future in tqdm(
+                    as_completed(future_tasks), total=len(future_tasks), desc="處理回應中"
+                ):
+                    llm_chat_completion = future.result()
+                    usage = llm_chat_completion.usage
+                    question_text, correct_answer, question_id = future_to_data[future]
+
+                    for sample_id, choice in enumerate(
+                        llm_chat_completion.choices[: self.samples_per_question]
+                    ):
+                        message = choice.message
+                        tool_calls = getattr(message, "tool_calls", None)
+
+                        if tool_calls:
+                            extraction_source = json.dumps([
+                                {
+                                    "name": tc.function.name,
+                                    "arguments": json.loads(tc.function.arguments),
+                                }
+                                for tc in tool_calls
+                            ], ensure_ascii=False)
+                        else:
+                            extraction_source = None
+                            log_error(f"問題 {question_id} 未回傳 tool_calls（finish_reason={choice.finish_reason}）")
+
+                        predicted_raw = self.extractor.extract(extraction_source)
+                        predicted_answer = (
+                            None if predicted_raw is None
+                            else self.scorer.normalize(predicted_raw)
+                        )
+                        is_correct = (
+                            False if predicted_answer is None
+                            else self.scorer.score(predicted_answer, correct_answer)
+                        )
+
+                        question_stats.setdefault(question_id, {"correct": 0, "total": 0})
+                        if is_correct:
+                            question_stats[question_id]["correct"] += 1
+                            total_correct_samples += 1
+                        if predicted_answer is None:
+                            total_unparsed += 1
+                        question_stats[question_id]["total"] += 1
+                        total_samples += 1
+
+                        detailed_results.append({
+                            "question_id": question_id,
+                            "sample_id": sample_id,
+                            "question": question_text,
+                            "correct_answer": correct_answer,
+                            "llm_output": json.dumps(
+                                [tc.function.name for tc in tool_calls] if tool_calls else [],
+                            ),
+                            "llm_reasoning_output": None,
+                            "predicted_answer": predicted_answer,
+                            "is_correct": is_correct,
+                            "usage_completion_tokens": usage.completion_tokens if usage else None,
+                            "usage_prompt_tokens": usage.prompt_tokens if usage else None,
+                            "usage_total_tokens": usage.total_tokens if usage else None,
+                        })
+
+            elif getattr(self.extractor, "uses_prompt_injection", False):
+                # ── BFCL Prompting 路徑 ─────────────────────────────────────
+                future_tasks = []
+                future_to_data: Dict[Any, Any] = {}
+
+                for idx, q in enumerate(tqdm(dataset, desc="處理題庫中")):
+                    try:
+                        correct_answer = self.scorer.normalize(q["answer"])
+                        functions = json.loads(q.get("functions", "[]"))
+                        base_messages = json.loads(q["question"])
+                        messages = inject_bfcl_system_prompt(base_messages, functions)
+                    except (KeyError, json.JSONDecodeError, AttributeError) as e:
+                        log_error(f"問題 {idx + 1} 資料格式錯誤: {e}")
+                        continue
+
+                    self.rate_limiter.wait()
+                    future = executor.submit(
+                        self.llm.call,
+                        "",
+                        prompt_lang,
+                        self.eval_method,
+                        False,
+                        self.samples_per_question,
+                        self.model_overrides,
+                        None,
+                        messages,
+                    )
+                    future_tasks.append(future)
+                    future_to_data[future] = (q.get("question", ""), correct_answer, idx)
+
+                for future in tqdm(
+                    as_completed(future_tasks), total=len(future_tasks), desc="處理回應中"
+                ):
+                    llm_chat_completion = future.result()
+                    usage = llm_chat_completion.usage
+                    question_text, correct_answer, question_id = future_to_data[future]
+
+                    for sample_id, choice in enumerate(
+                        llm_chat_completion.choices[: self.samples_per_question]
+                    ):
+                        message = choice.message
+                        content = message.content
+                        reasoning_content = getattr(message, "reasoning_content", None)
+                        if content:
+                            content = _strip_think_blocks(content)
+                        extraction_source = content if content else reasoning_content
+                        if extraction_source is None:
+                            log_error(f"問題 {question_id} 的 content 均為 null")
+
+                        predicted_raw = self.extractor.extract(extraction_source)
+                        predicted_answer = (
+                            None if predicted_raw is None
+                            else self.scorer.normalize(predicted_raw)
+                        )
+                        is_correct = (
+                            False if predicted_answer is None
+                            else self.scorer.score(predicted_answer, correct_answer)
+                        )
+
+                        question_stats.setdefault(question_id, {"correct": 0, "total": 0})
+                        if is_correct:
+                            question_stats[question_id]["correct"] += 1
+                            total_correct_samples += 1
+                        if predicted_answer is None:
+                            total_unparsed += 1
+                        question_stats[question_id]["total"] += 1
+                        total_samples += 1
+
+                        detailed_results.append({
+                            "question_id": question_id,
+                            "sample_id": sample_id,
+                            "question": question_text,
+                            "correct_answer": correct_answer,
+                            "llm_output": content,
+                            "llm_reasoning_output": reasoning_content,
+                            "predicted_answer": predicted_answer,
+                            "is_correct": is_correct,
+                            "usage_completion_tokens": usage.completion_tokens if usage else None,
+                            "usage_prompt_tokens": usage.prompt_tokens if usage else None,
+                            "usage_total_tokens": usage.total_tokens if usage else None,
+                        })
 
             else:
                 # ── 文字解析路徑 ────────────────────────────────────────────

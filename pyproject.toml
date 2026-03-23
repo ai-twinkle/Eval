@@ -66,6 +66,9 @@ math = [
     "sympy>=1.14.0",
     "pylatexenc>=2.10",
 ]
+tool = [
+    "jsonschema>=4.0.0",
+]
 dev = [
     "pytest>=7.0.0",
     "pytest-cov>=4.0.0",
@@ -106,7 +109,7 @@ packages = [
 ]
 
 [tool.setuptools.package-data]
-twinkle_eval = ["*.yaml", "*.yml", "config.template.yaml", "config.multiple_choice.template.yaml", "config.math.template.yaml"]
+twinkle_eval = ["*.yaml", "*.yml", "config.template.yaml", "config.multiple_choice.template.yaml", "config.math.template.yaml", "config.bfcl.template.yaml"]
 
 [tool.black]
 line-length = 100

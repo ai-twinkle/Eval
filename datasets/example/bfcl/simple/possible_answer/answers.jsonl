@@ -1,0 +1,5 @@
+{"id": "simple_0", "ground_truth": [{"calculate_triangle_area": {"base": [10], "height": [5], "unit": ["units", ""]}}]}
+{"id": "simple_1", "ground_truth": [{"math.factorial": {"number": [5]}}]}
+{"id": "simple_2", "ground_truth": [{"math.hypot": {"x": [4], "y": [5], "z": ["", 0]}}]}
+{"id": "simple_3", "ground_truth": [{"algebra.quadratic_roots": {"a": [1], "b": [-3], "c": [2]}}]}
+{"id": "simple_4", "ground_truth": [{"solve_quadratic_equation": {"a": [2], "b": [6], "c": [5]}}]}

@@ -1,6 +1,6 @@
 """OpenAI 相容 API 的 LLM 實作。"""
 
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Optional
 
 import httpx
 from openai import OpenAI
@@ -79,9 +79,20 @@ class OpenAIModel(LLM):
         system_prompt_enabled: bool = True,
         num_samples: int = 1,
         model_overrides: Optional[Dict[str, Any]] = None,
+        tools: Optional[List[Dict[str, Any]]] = None,
+        messages: Optional[List[Dict[str, Any]]] = None,
     ) -> ChatCompletion:
-        """呼叫 OpenAI 相容 API 並回傳回應。"""
-        messages = self._build_messages(question_text, prompt_lang, eval_method, system_prompt_enabled)
+        """呼叫 OpenAI 相容 API 並回傳回應。
+
+        Args:
+            tools:    OpenAI tools 格式列表（FC 模式）。
+            messages: 預先建構的 messages（BFCL 模式）。
+                      若提供則略過 _build_messages()。
+        """
+        if messages is not None:
+            built_messages = messages
+        else:
+            built_messages = self._build_messages(question_text, prompt_lang, eval_method, system_prompt_enabled)
         model_config = self.config["model"]
         overrides = model_overrides or {}
 
@@ -90,7 +101,7 @@ class OpenAIModel(LLM):
             "temperature": overrides.get("temperature", model_config["temperature"]),
             "top_p": overrides.get("top_p", model_config["top_p"]),
             "max_tokens": overrides.get("max_tokens", model_config["max_tokens"]),
-            "messages": messages,
+            "messages": built_messages,
         }
 
         if num_samples > 1:
@@ -103,6 +114,9 @@ class OpenAIModel(LLM):
                 payload[param] = overrides[param]
             elif param in model_config:
                 payload[param] = model_config[param]
+
+        if tools:
+            payload["tools"] = tools
 
         if model_config["extra_body"]:
             payload["extra_body"] = model_config["extra_body"]

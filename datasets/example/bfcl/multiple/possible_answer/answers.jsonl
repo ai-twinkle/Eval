@@ -1,0 +1,5 @@
+{"id": "multiple_0", "ground_truth": [{"triangle_properties.get": {"side1": [5], "side2": [4], "side3": [3], "get_area": ["", true], "get_perimeter": ["", true], "get_angles": ["", true]}}]}
+{"id": "multiple_1", "ground_truth": [{"math.triangle_area_heron": {"side1": [3], "side2": [4], "side3": [5]}}]}
+{"id": "multiple_2", "ground_truth": [{"country_info.capital": {"country": ["Brazil"]}}]}
+{"id": "multiple_3", "ground_truth": [{"EuclideanDistance.calculate": {"pointA": [[3, 4]], "pointB": [[1, 2]], "rounding": ["", 0]}}]}
+{"id": "multiple_4", "ground_truth": [{"kinematics.calculate_displacement": {"initial_speed": [20], "acceleration": [10], "time": [5], "rounding": ["", 2]}}]}
