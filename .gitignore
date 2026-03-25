@@ -130,9 +130,11 @@ logs/
 # results directory
 results/
 
-# real config files (contain API keys)
+# real config files (contain API keys — 絕對不得 commit)
 config.yaml
 config_test_*.yaml
+config_local_*.yaml
+*.local.yaml
 configs/*.yaml
 
 # personal analysis notes (not for commit)

@@ -13,15 +13,16 @@
 3. [架構總覽](#3-架構總覽)
 4. [模組職責邊界](#4-模組職責邊界)
 5. [擴充規範——如何正確新增功能](#5-擴充規範如何正確新增功能)
-6. [必須先開 Issue 的情況](#6-必須先開-issue-的情況)
-7. [程式碼風格規範](#7-程式碼風格規範)
-8. [設定檔規範（config.yaml）](#8-設定檔規範configyaml)
-9. [輸出格式規範](#9-輸出格式規範)
-10. [依賴管理規範](#10-依賴管理規範)
-11. [CLI 設計規範](#11-cli-設計規範)
-12. [提交 PR 前的 Checklist](#12-提交-pr-前的-checklist)
-13. [專案現況快照](#13-專案現況快照)
-14. [貢獻者](#14-貢獻者)
+6. [新增評測 Benchmark 的完整規範](#6-新增評測-benchmark-的完整規範)
+7. [必須先開 Issue 的情況](#7-必須先開-issue-的情況)
+8. [程式碼風格規範](#8-程式碼風格規範)
+9. [設定檔規範（config.yaml）](#9-設定檔規範configyaml)
+10. [輸出格式規範](#10-輸出格式規範)
+11. [依賴管理規範](#11-依賴管理規範)
+12. [CLI 設計規範](#12-cli-設計規範)
+13. [提交 PR 前的 Checklist](#13-提交-pr-前的-checklist)
+14. [專案現況快照](#14-專案現況快照)
+15. [貢獻者](#15-貢獻者)
 
 ---
 
@@ -136,9 +137,20 @@ option_keys = [k for k in question_data if k.isupper() and len(k) <= 2]
 
 評測結果輸出時，**必須使用 append 模式**（`'a'`）而非 overwrite 模式（`'w'`）寫入 JSONL 檔案，以確保多檔、多 run 的結果都能正確累積。（此問題已記錄於 PR #17）
 
-### 原則 E：API 金鑰絕對不得出現在輸出或日誌中
+### 原則 E：API 金鑰絕對不得出現在輸出、日誌或 Git 歷史中
 
-在儲存結果或輸出日誌前，必須呼叫 `_prepare_config_for_saving()` 移除敏感資訊。任何新增的輸出路徑都必須遵守這個規則。
+**兩條硬性規定，違反任一都是嚴重問題：**
+
+1. **程式碼輸出**：在儲存結果或輸出日誌前，必須呼叫 `_prepare_config_for_saving()` 移除敏感資訊。任何新增的輸出路徑都必須遵守這個規則。
+
+2. **Git commit**：含有真實 API 金鑰的 config 檔案**絕對不得 commit 到 Git**。
+   - 本機測試用的 config 檔案（如 `config_test_*.yaml`、`config_local_*.yaml`、`config_*.local.yaml`）必須列入 `.gitignore`
+   - **命名規範**：本機 config 檔案一律使用以下前綴或後綴之一，這些檔案已全局被 `.gitignore` 排除：
+     - `config_local_*.yaml`
+     - `config_test_*.yaml`（測試用）
+     - `*.local.yaml`
+   - 若不確定某個 config 是否含有 API 金鑰，在 commit 前先執行 `git diff --staged | grep -i "api_key"` 確認
+   - coding agent 在建立任何含有 API 金鑰的 config 檔案時，**必須先確認該路徑已在 `.gitignore` 中**，然後才能寫入
 
 ### 原則 F：Backward Compatibility 優先
 
@@ -301,7 +313,108 @@ EvaluationStrategyFactory.register_strategy("my_strategy", MyStrategy)
 
 ---
 
-## 6. 必須先開 Issue 的情況
+## 6. 新增評測 Benchmark 的完整規範
+
+每次新增一個評測 benchmark（如 IFEval、BFCL、RAGAS 等），必須依照以下流程進行，**缺一不可**。
+
+### 6.0 開始前：建立 Milestone 與 Issues
+
+**在寫任何一行程式碼之前**，必須先完成 GitHub 上的規劃工作：
+
+1. **建立 Milestone**：在 GitHub 建立一個對應的 Milestone，標題格式為 `{Benchmark Name} — {一句話說明}`
+   - 例如：`IFEval — Instruction Following Evaluation`
+   - Milestone description 應包含：benchmark 來源、目的、預計實作範圍
+
+2. **開立 Issues 並掛上 Milestone**：將以下每個步驟（6.1–6.5）各開一個 Issue：
+   - 每個 Issue 必須掛上 **`type: feature`** label
+   - 每個 Issue 必須附屬在該 benchmark 的 Milestone 下
+   - Issue 標題格式：`feat({benchmark}): {步驟描述}`
+
+3. **不得跳過**：沒有對應 Milestone 和 Issues 的 benchmark 實作，不得開 PR
+
+**標準 Issue 結構（一個 benchmark 共需開 5 個 Issues）：**
+
+| Issue | 標題範例 | 對應步驟 |
+|-------|---------|--------|
+| 1 | `feat(ifeval): prepare example dataset from HuggingFace` | 6.1 資料集 |
+| 2 | `feat(ifeval): implement Extractor + Scorer + Checkers` | 6.2 實作 |
+| 3 | `feat(ifeval): score comparison vs reference framework` | 6.3 分數對比 |
+| 4 | `feat(ifeval): speed benchmark vs reference framework` | 6.4 速度對比 |
+| 5 | `feat(ifeval): write docs/evals/{name}.md` | 6.5 文件 |
+
+### 6.0.1 合入（Merge）的前提條件
+
+**一個 benchmark 的 PR 必須等到以下全部完成才可合入 main：**
+
+- [ ] 所有 5 個 Issues 已 close（或在同一 PR 中解決）
+- [ ] `docs/evals/{benchmark_name}.md` 已完整填寫（包含分數對比與速度對比）
+- [ ] 分數誤差符合第 6.3 節的容差標準
+- [ ] 前一個優先級更高的 benchmark 若尚未完成，此 benchmark 不得合入
+
+**Benchmark 開發優先順序原則**：先完成再開始下一個。若 IFEval 尚未完成（含比較報告），不得開始 IFBench 的實作。
+
+### 6.1 提供評測集來源與 example 樣本
+
+- 明確記錄資料集來源（paper、官方 repo、HuggingFace dataset ID）
+- 從官方來源取出有代表性的樣本放入 `datasets/example/{benchmark_name}/`
+  - 樣本數建議：**10–20 筆**，涵蓋該 benchmark 的主要題型分佈
+  - 樣本需為可直接執行的完整格式（含 `id`、`question`、答案欄位等）
+  - 若 benchmark 有子類別（如 BFCL 的 simple/multiple/parallel），每個子類別至少 2–3 筆
+- `datasets/example/{benchmark_name}/` 必須能讓任何人在不下載完整資料集的情況下跑通完整流程
+
+### 6.2 依參考框架重構為本專案架構
+
+若有參考既有框架（如 lm-evaluation-harness、DeepEval、RAGAS 官方實作）：
+
+- **不得直接複製整個框架**，必須萃取核心評分邏輯，以最小依賴實作
+- 若需移植第三方程式碼（如 Google IFEval checkers），必須：
+  - 在 `docs/evals/{benchmark_name}.md` 記錄授權資訊（Apache 2.0 / MIT 等）
+  - 明確標注「移植自 {原始來源}」，並在對應的 Python 檔案頂部加入 attribution 注解
+  - 若原始程式碼使用不可用的依賴（如 `absl`、`immutabledict`），必須替換為標準庫等價物
+- 實作架構必須遵循本專案的 Extractor/Scorer 模式（第 5.2 節）
+- 若需要 optional dependency，加入 `pyproject.toml` 的 `[project.optional-dependencies]` 並附上安裝指引
+
+### 6.3 與原始框架進行分數對比驗證
+
+新增 benchmark 後，**必須**使用相同模型、相同題目，同時跑本專案與參考框架，並在 `docs/evals/{benchmark_name}.md` 記錄對比結果。
+
+**分數容差標準：**
+
+| 資料集大小 | 可接受誤差 | 說明 |
+|-----------|----------|------|
+| ≥ 200 筆 | ±2% | 完整 benchmark，誤差應極小 |
+| 50–199 筆 | ±3% | 中型子集，允許略高統計波動 |
+| < 50 筆 | ±5% | 小型子集，波動較大屬正常 |
+| ≤ 20 筆（example） | 僅作 sanity check | 不強制對比，僅確認流程可跑通 |
+
+若分數超出容差，必須調查原因（通常為：preprocessing 差異、prompt 格式差異、答案正規化邏輯差異），並在文件中說明差異原因或修正方式。
+
+### 6.4 記錄評測速度對比
+
+本專案核心優勢是速度。每個新增的 benchmark 必須記錄：
+
+- **本專案（單機）**：總耗時、並行 worker 數、模型名稱
+- **參考框架（若有）**：同等硬體、同等題數下的耗時
+- 記錄位置：`docs/evals/{benchmark_name}.md` 的「速度對比」段落
+
+若對比框架不支援特定模型或無法在同等環境執行，可註明「無法直接對比」並說明原因。
+
+### 6.5 建立評測文件（docs/evals/{benchmark_name}.md）
+
+每個 benchmark 必須在 `docs/evals/` 下建立一個對應的文件，使用 `docs/evals/TEMPLATE.md` 作為模板，包含：
+
+- **來源**：原始 paper（附 DOI/arXiv 連結）、官方 repo、資料集連結
+- **目的**：這個評測在衡量什麼能力、適合用於哪些比較場景
+- **Leaderboard**（若有）：附上官方 leaderboard 連結
+- **實作說明**：Extractor/Scorer 設計、特殊邏輯說明、optional deps
+- **分數對比**：本專案 vs. 參考框架（含模型名稱、資料集規模、日期）
+- **速度對比**：單機測速結果
+
+文件模板位於 `docs/evals/TEMPLATE.md`。
+
+---
+
+## 7. 必須先開 Issue 的情況
 
 以下情況**不得直接提交 PR**，必須先在 GitHub 開立 Issue 說明理由、設計方案、影響範圍，取得至少一位 maintainer（teds-lin 或 lianghsun）的明確同意後，才能開始實作：
 
@@ -327,7 +440,7 @@ EvaluationStrategyFactory.register_strategy("my_strategy", MyStrategy)
 
 ---
 
-## 7. 程式碼風格規範
+## 8. 程式碼風格規範
 
 ### 工具設定
 
@@ -385,7 +498,7 @@ def evaluate_file(self, file_path: str, timestamp: str, prompt_lang: str = "zh")
 
 ---
 
-## 8. 設定檔規範（config.yaml）
+## 9. 設定檔規範（config.yaml）
 
 ### 現有結構（不得重新命名現有欄位）
 
@@ -431,7 +544,7 @@ logging:
 
 ---
 
-## 9. 輸出格式規範
+## 10. 輸出格式規範
 
 ### 輸出檔案路徑規則
 
@@ -467,7 +580,7 @@ results/
 
 ---
 
-## 10. 依賴管理規範
+## 11. 依賴管理規範
 
 - 依賴定義在 `pyproject.toml` 的 `[project.dependencies]`
 - 選用功能（如 Google Services、HuggingFace 上傳）應考慮放在 `[project.optional-dependencies]` 或在 import 時加 try/except
@@ -481,7 +594,7 @@ results/
 
 ---
 
-## 11. CLI 設計規範
+## 12. CLI 設計規範
 
 - 所有新增的 CLI 功能必須有對應的 `--help` 說明文字
 - 功能性命令（如 `--benchmark`、`--download-dataset`）不需要 `--config` 即可執行時，需能獨立運作
@@ -491,7 +604,7 @@ results/
 
 ---
 
-## 12. 提交 PR 前的 Checklist
+## 13. 提交 PR 前的 Checklist
 
 **coding agent 在提交任何 PR 之前，必須自行完成以下檢查**：
 
@@ -517,6 +630,15 @@ results/
 - [ ] 若新增 config 欄位，已更新 `config.template.yaml`
 - [ ] 若新增 CLI 選項，已更新 README
 
+### 新增 Benchmark 專屬（若本 PR 新增評測方法，以下全部必須完成）
+- [ ] `datasets/example/{name}/` 已建立，含 10–20 筆代表性樣本
+- [ ] 若移植第三方程式碼，已在 Python 檔案頂部加入 attribution 注解
+- [ ] `docs/evals/{name}.md` 已建立（使用 `docs/evals/TEMPLATE.md`）
+- [ ] 文件中已記錄資料集來源（paper、repo、HuggingFace ID）
+- [ ] 文件中已記錄與參考框架的**分數對比**（含模型名稱、資料集規模）
+  - 分數誤差符合第 6.3 節容差標準（完整 benchmark ±2%，中型 ±3%，小型 ±5%）
+- [ ] 文件中已記錄**速度對比**（本專案單機 vs. 參考框架）
+
 ### 衝突確認
 確認本 PR 的修改是否與以下開放中 PR 有衝突：
 
@@ -533,7 +655,7 @@ results/
 
 ---
 
-## 13. 專案現況快照
+## 14. 專案現況快照
 
 ### 基本資訊
 
@@ -592,7 +714,7 @@ results/
 
 ---
 
-## 14. 貢獻者
+## 15. 貢獻者
 
 | GitHub | 名稱 | 角色 |
 |--------|------|------|
