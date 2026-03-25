@@ -1,0 +1,33 @@
+llm_api:
+  base_url: "http://your-openai-compatible-server/v1"  # API 伺服器網址
+  api_key: "your-api-key"                              # API 金鑰
+  disable_ssl_verify: false                            # 是否停用 SSL 驗證
+  api_rate_limit: -1                                   # 每秒請求限制（-1 為不限制）
+  max_retries: 3                                       # API 呼叫失敗時的重試次數
+  timeout: 60                                          # 單次請求逾時（秒）
+
+model:
+  name: "model-name"      # 模型名稱
+  temperature: 0.0        # 溫度參數
+  top_p: 0.9
+  max_tokens: 4096        # IFEval 指令可能要求長回答，建議至少 2048
+  frequency_penalty: 0.0
+  presence_penalty: 0.0
+  extra_body:
+
+evaluation:
+  dataset_paths:          # 資料集目錄路徑（必填，支援多個）
+    - "datasets/ifeval/"
+
+  # IFEval 評測：
+  # - 測試模型是否能「遵循指令」（如：不用逗號、全大寫、特定字數等）
+  # - IFEvalExtractor 直接 pass-through 原始回答（不提取特定格式）
+  # - IFEvalScorer 使用 Google 官方 checker 計算 4 個指標：
+  #     prompt_strict / prompt_loose / instruction_strict / instruction_loose
+  # - 需要安裝：pip install twinkle-eval[ifeval]
+  #   並執行：python -c "import nltk; nltk.download('punkt_tab')"
+  # - 資料集欄位：id, question, instruction_id_list (JSON), kwargs (JSON)
+  evaluation_method: "ifeval"
+
+logging:
+  level: "INFO"           # DEBUG / INFO / WARNING / ERROR

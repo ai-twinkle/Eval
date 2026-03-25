@@ -66,6 +66,10 @@ math = [
     "sympy>=1.14.0",
     "pylatexenc>=2.10",
 ]
+ifeval = [
+    "langdetect>=1.0.9",
+    "nltk>=3.8.0",
+]
 dev = [
     "pytest>=7.0.0",
     "pytest-cov>=4.0.0",
@@ -99,6 +103,8 @@ packages = [
     "twinkle_eval.exporters",
     "twinkle_eval.integrations",
     "twinkle_eval.metrics",
+    "twinkle_eval.metrics.checkers",
+    "twinkle_eval.metrics.checkers.ifeval",
     "twinkle_eval.metrics.extractors",
     "twinkle_eval.metrics.scorers",
     "twinkle_eval.models",
@@ -106,7 +112,7 @@ packages = [
 ]
 
 [tool.setuptools.package-data]
-twinkle_eval = ["*.yaml", "*.yml", "config.template.yaml", "config.multiple_choice.template.yaml", "config.math.template.yaml"]
+twinkle_eval = ["*.yaml", "*.yml", "config.template.yaml", "config.multiple_choice.template.yaml", "config.math.template.yaml", "config.ifeval.template.yaml"]
 
 [tool.black]
 line-length = 100
