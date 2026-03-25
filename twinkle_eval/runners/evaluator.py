@@ -259,7 +259,15 @@ class Evaluator:
 
                     # 計算四個指標
                     if hasattr(self.scorer, "score_full"):
-                        ifeval_result = self.scorer.score_full(response, inst_ids, kwargs_list)
+                        # IFBench scorer 需要 prompt 參數（某些 checker 如 RepeatChangeChecker）
+                        import inspect
+                        sig = inspect.signature(self.scorer.score_full)
+                        if "prompt" in sig.parameters:
+                            ifeval_result = self.scorer.score_full(
+                                response, inst_ids, kwargs_list, prompt=question_text
+                            )
+                        else:
+                            ifeval_result = self.scorer.score_full(response, inst_ids, kwargs_list)
                     else:
                         ifeval_result = {
                             "prompt_strict": False, "prompt_loose": False,

@@ -1,0 +1,33 @@
+llm_api:
+  base_url: "http://your-openai-compatible-server/v1"  # API 伺服器網址
+  api_key: "your-api-key"                              # API 金鑰
+  disable_ssl_verify: false                            # 是否停用 SSL 驗證
+  api_rate_limit: -1                                   # 每秒請求限制（-1 為不限制）
+  max_retries: 3                                       # API 呼叫失敗時的重試次數
+  timeout: 120                                         # 單次請求逾時（秒）
+
+model:
+  name: "model-name"      # 模型名稱
+  temperature: 0.0        # 溫度參數
+  top_p: 0.9
+  max_tokens: 4096        # IFBench 指令可能要求長回答，建議至少 2048
+  frequency_penalty: 0.0
+  presence_penalty: 0.0
+  extra_body:
+
+evaluation:
+  dataset_paths:          # 資料集目錄路徑（必填，支援多個）
+    - "datasets/ifbench/"
+
+  # IFBench 評測（AllenAI, NeurIPS 2025）：
+  # - 測試模型對 58 種 OOD (out-of-distribution) 指令的遵循能力
+  # - 比 IFEval (Google, 25 types) 更困難：palindromes, CSV format, alphabet loops 等
+  # - 使用與 IFEval 相同的 strict/loose 評分框架，輸出 4 個指標：
+  #     prompt_strict / prompt_loose / instruction_strict / instruction_loose
+  # - 需要安裝：pip install twinkle-eval[ifbench]
+  #   並執行：python -c "import nltk; nltk.download('punkt_tab'); nltk.download('stopwords'); nltk.download('averaged_perceptron_tagger_eng')"
+  # - 資料集欄位：key, prompt, instruction_id_list (list), kwargs (list[dict])
+  evaluation_method: "ifbench"
+
+logging:
+  level: "INFO"           # DEBUG / INFO / WARNING / ERROR
