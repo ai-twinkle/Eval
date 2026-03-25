@@ -207,6 +207,113 @@ class Evaluator:
                         "usage_total_tokens": None,
                     })
 
+            elif getattr(self.extractor, "uses_ifeval", False):
+                # ── IFEval 路徑 ──────────────────────────────────────────────
+                future_tasks = []
+                future_to_data: Dict[Any, Any] = {}
+
+                for idx, q in enumerate(tqdm(dataset, desc="處理題庫中")):
+                    try:
+                        instruction_id_list = json.loads(q.get("instruction_id_list", "[]"))
+                        kwargs_list = json.loads(q.get("kwargs", "[]"))
+                        question_text = q.get("question", "")
+                    except (json.JSONDecodeError, AttributeError) as e:
+                        log_error(f"問題 {idx + 1} 資料格式錯誤: {e}")
+                        continue
+
+                    ground_truth = json.dumps({
+                        "instruction_id_list": instruction_id_list,
+                        "kwargs": kwargs_list,
+                    }, ensure_ascii=False)
+
+                    self.rate_limiter.wait()
+                    future = executor.submit(
+                        self.llm.call,
+                        question_text,
+                        prompt_lang,
+                        self.eval_method,
+                        False,  # system_prompt_enabled=False for IFEval
+                        1,
+                        self.model_overrides,
+                    )
+                    future_tasks.append(future)
+                    future_to_data[future] = (question_text, ground_truth, idx, instruction_id_list, kwargs_list)
+
+                # 累積 instruction-level 統計（跨題目）
+                all_inst_strict: list = []
+                all_inst_loose: list = []
+
+                for future in tqdm(
+                    as_completed(future_tasks), total=len(future_tasks), desc="處理回應中"
+                ):
+                    llm_chat_completion = future.result()
+                    usage = llm_chat_completion.usage
+                    question_text, ground_truth, question_id, inst_ids, kwargs_list = future_to_data[future]
+
+                    message = llm_chat_completion.choices[0].message
+                    content = message.content
+                    reasoning_content = getattr(message, "reasoning_content", None)
+                    if content:
+                        content = _strip_think_blocks(content)
+                    response = content if content else (reasoning_content or "")
+
+                    # 計算四個指標
+                    if hasattr(self.scorer, "score_full"):
+                        ifeval_result = self.scorer.score_full(response, inst_ids, kwargs_list)
+                    else:
+                        ifeval_result = {
+                            "prompt_strict": False, "prompt_loose": False,
+                            "instruction_strict": [], "instruction_loose": [],
+                        }
+
+                    prompt_strict = ifeval_result["prompt_strict"]
+                    prompt_loose = ifeval_result["prompt_loose"]
+                    inst_strict = ifeval_result["instruction_strict"]
+                    inst_loose = ifeval_result["instruction_loose"]
+
+                    all_inst_strict.extend(inst_strict)
+                    all_inst_loose.extend(inst_loose)
+
+                    # is_correct = prompt-level strict（主要指標）
+                    is_correct = prompt_strict
+
+                    question_stats.setdefault(question_id, {"correct": 0, "total": 0})
+                    if is_correct:
+                        question_stats[question_id]["correct"] += 1
+                        total_correct_samples += 1
+                    question_stats[question_id]["total"] += 1
+                    total_samples += 1
+
+                    detailed_results.append({
+                        "question_id": question_id,
+                        "sample_id": 0,
+                        "question": question_text,
+                        "correct_answer": ground_truth,
+                        "llm_output": response,
+                        "llm_reasoning_output": None,
+                        "predicted_answer": response,
+                        "is_correct": is_correct,
+                        "prompt_strict": prompt_strict,
+                        "prompt_loose": prompt_loose,
+                        "instruction_strict": inst_strict,
+                        "instruction_loose": inst_loose,
+                        "usage_completion_tokens": usage.completion_tokens if usage else None,
+                        "usage_prompt_tokens": usage.prompt_tokens if usage else None,
+                        "usage_total_tokens": usage.total_tokens if usage else None,
+                    })
+
+                # 在 metrics 中補充 instruction-level 指標
+                if all_inst_strict:
+                    question_stats["_ifeval_inst_strict"] = {
+                        "correct": sum(all_inst_strict),
+                        "total": len(all_inst_strict),
+                    }
+                if all_inst_loose:
+                    question_stats["_ifeval_inst_loose"] = {
+                        "correct": sum(all_inst_loose),
+                        "total": len(all_inst_loose),
+                    }
+
             else:
                 # ── 文字解析路徑 ────────────────────────────────────────────
                 future_tasks = []
@@ -352,4 +459,32 @@ class Evaluator:
             "unparsed_rate": unparsed_rate,
             "total_count": total_samples,
         }
+
+        # IFEval 額外指標
+        if getattr(self.extractor, "uses_ifeval", False):
+            inst_strict = question_stats.get("_ifeval_inst_strict", {})
+            inst_loose = question_stats.get("_ifeval_inst_loose", {})
+            prompt_loose_count = sum(
+                1 for d in detailed_results if d.get("prompt_loose", False)
+            )
+            inst_strict_acc = (
+                inst_strict["correct"] / inst_strict["total"]
+                if inst_strict.get("total") else 0.0
+            )
+            inst_loose_acc = (
+                inst_loose["correct"] / inst_loose["total"]
+                if inst_loose.get("total") else 0.0
+            )
+            prompt_loose_acc = prompt_loose_count / total_samples if total_samples else 0.0
+            metrics.update({
+                "prompt_strict": accuracy,           # same as accuracy
+                "prompt_loose": prompt_loose_acc,
+                "instruction_strict": inst_strict_acc,
+                "instruction_loose": inst_loose_acc,
+            })
+            print(
+                f"  prompt strict={accuracy:.1%}  loose={prompt_loose_acc:.1%} | "
+                f"instruction strict={inst_strict_acc:.1%}  loose={inst_loose_acc:.1%}"
+            )
+
         return file_path, metrics, results_path
