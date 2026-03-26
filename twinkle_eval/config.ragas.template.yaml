@@ -1,0 +1,40 @@
+llm_api:
+  base_url: "http://your-openai-compatible-server/v1"  # API 伺服器網址（此 LLM 作為 judge）
+  api_key: "your-api-key"                              # API 金鑰
+  disable_ssl_verify: false                            # 是否停用 SSL 驗證
+  api_rate_limit: -1                                   # 每秒請求限制（-1 為不限制）
+  max_retries: 3                                       # API 呼叫失敗時的重試次數
+  timeout: 60                                          # 單次請求逾時（秒）
+
+model:
+  name: "model-name"      # Judge 模型名稱（建議使用能力較強的模型）
+  temperature: 0.0        # 溫度參數（judge 建議 0.0 以確保一致性）
+  top_p: 0.9
+  max_tokens: 512         # Judge 回應為 JSON，512 足夠
+  frequency_penalty: 0.0
+  presence_penalty: 0.0
+  extra_body:
+
+evaluation:
+  dataset_paths:          # 資料集目錄路徑（必填，支援多個）
+    - "datasets/example/ragas/"
+
+  # RAGAS 評測（Retrieval-Augmented Generation Assessment）：
+  # - 評價已有的 RAG pipeline 輸出（question + response + contexts + reference）
+  # - config.yaml 中的 LLM 作為 judge，評價 4 個指標：
+  #     faithfulness:       回答的聲明是否有 context 支撐
+  #     answer_relevancy:   回答與問題的相關性
+  #     context_precision:  檢索到的 context 是否相關
+  #     context_recall:     context 是否涵蓋 reference 的所有面向
+  # - 每個指標為 0.0–1.0 的連續分數
+  # - is_correct 由 4 個指標的平均分數是否 >= threshold 決定
+  # - 資料集的 question 欄位為預組裝的 judge prompt
+  # - 無需額外 dependency
+  evaluation_method: "ragas"
+
+  # RAGAS 閾值設定（選填）
+  # strategy_config:
+  #   ragas_threshold: 0.5  # 平均分數的 is_correct 閾值（預設 0.5）
+
+logging:
+  level: "INFO"           # DEBUG / INFO / WARNING / ERROR

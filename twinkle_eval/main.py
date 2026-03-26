@@ -73,6 +73,7 @@ def create_default_config(output_dir: str = "configs") -> int:
         ("config.math.template.yaml",             "math.yaml"),
         ("config.bfcl.template.yaml",             "bfcl.yaml"),
         ("config.niah.template.yaml",             "niah.yaml"),
+        ("config.ragas.template.yaml",            "ragas.yaml"),
     ]
     pkg_dir = os.path.dirname(__file__)
 
