@@ -9,6 +9,7 @@ import pytest
 from twinkle_eval.metrics.extractors.niah import NIAHExtractor
 from twinkle_eval.metrics.scorers.niah import (
     NIAHScorer,
+    _normalize_reference_label,
     _normalize_text,
     _tokenize_chinese,
     compute_f1,
@@ -136,6 +137,14 @@ class TestNIAHScorer:
     def test_exact_mode_false(self):
         scorer = NIAHScorer({"niah_scoring_mode": "exact"})
         assert scorer.score("42 billion dollars", "42 billion") is False
+
+    def test_exact_mode_paragraph_spacing_true(self):
+        scorer = NIAHScorer({"niah_scoring_mode": "exact"})
+        assert scorer.score("段落 9", "段落9") is True
+
+    def test_normalize_reference_label_paragraph_spacing(self):
+        assert _normalize_reference_label("段落 27") == "段落27"
+        assert _normalize_reference_label("paragraph 12") == "paragraph12"
 
     def test_f1_mode_above_threshold(self):
         scorer = NIAHScorer({"niah_scoring_mode": "f1", "niah_f1_threshold": 0.5})

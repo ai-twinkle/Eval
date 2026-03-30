@@ -23,6 +23,14 @@ def _normalize_text(text: str) -> str:
     return text
 
 
+def _normalize_reference_label(text: str) -> str:
+    """正規化段落/編號標籤，避免 `段落9` 與 `段落 9` 類型差異造成誤判。"""
+    text = _normalize_text(text)
+    text = re.sub(r"(段落)\s+(\d+)", r"\1\2", text)
+    text = re.sub(r"(paragraph)\s+(\d+)", r"\1\2", text)
+    return text
+
+
 def _tokenize_chinese(text: str) -> list[str]:
     """簡易中文分詞：逐字拆分中文字元，英文按空白分詞。"""
     tokens: list[str] = []
@@ -97,7 +105,7 @@ class NIAHScorer(Scorer):
         gold_str = str(gold)
 
         if self.scoring_mode == "exact":
-            return _normalize_text(pred_str) == _normalize_text(gold_str)
+            return _normalize_reference_label(pred_str) == _normalize_reference_label(gold_str)
         elif self.scoring_mode == "f1":
             return compute_f1(pred_str, gold_str) >= self.f1_threshold
         else:
