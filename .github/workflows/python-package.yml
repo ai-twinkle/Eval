@@ -1,0 +1,24 @@
+name: 發布至 PyPI
+
+on:
+  release:
+    types: [published]   # 當 GitHub Release 發布時觸發
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: 安裝 uv
+        uses: astral-sh/setup-uv@v5
+
+      - name: 建置套件
+        run: uv build
+
+      - name: 發布至 PyPI
+        env:
+          UV_PUBLISH_TOKEN: ${{ secrets.PYPI_API_TOKEN }}
+        run: uv publish
