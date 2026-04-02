@@ -22,6 +22,7 @@ evaluation:
     - "PLACEHOLDER_DATASET_DIR/ikala__tmmluplus/"
     - "PLACEHOLDER_DATASET_DIR/cais__mmlu/"
     - "PLACEHOLDER_DATASET_DIR/lianghsun__tw-legal-benchmark-v1/"
+    - "PLACEHOLDER_DATASET_DIR/lianghsun__Formosa-bench/"
   evaluation_method: "box"
   system_prompt:
     zh: |

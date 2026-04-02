@@ -144,6 +144,13 @@ if [[ ! -d "${DATASET_DIR}/cais__mmlu" ]]; then
         --dataset-split test \
         --output-dir "${DATASET_DIR}"
 fi
+
+if [[ ! -d "${DATASET_DIR}/lianghsun__Formosa-bench" ]]; then
+    echo "正在下載 Formosa-bench (train) ..."
+    uv run twinkle-eval --download-dataset lianghsun/Formosa-bench \
+        --dataset-split train \
+        --output-dir "${DATASET_DIR}"
+fi
 # ==============================================================================
 
 # 建立動態配置檔
