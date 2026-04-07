@@ -547,9 +547,11 @@ def create_cli_parser() -> argparse.ArgumentParser:
   twinkle-eval --benchmark --benchmark-requests 50  # 執行 50 個請求的測試
   twinkle-eval --benchmark --benchmark-concurrency 5 --benchmark-rate 2  # 5 並發，2 請求/秒
 
-HuggingFace 資料集下載:
-  twinkle-eval --download-dataset cais/mmlu          # 下載 MMLU 所有子集
-  twinkle-eval --download-dataset cais/mmlu --dataset-subset anatomy  # 下載特定子集
+評測資料集下載:
+  twinkle-eval --download-dataset list               # 列出所有可下載的 benchmark
+  twinkle-eval --download-dataset mmlu gsm8k bbh     # 下載指定 benchmark
+  twinkle-eval --download-dataset all                # 下載全部 benchmark
+  twinkle-eval --download-dataset cais/mmlu          # 直接指定 HuggingFace ID
   twinkle-eval --dataset-info cais/mmlu             # 查看資料集資訊
         """,
     )
@@ -580,8 +582,12 @@ HuggingFace 資料集下載:
     # HuggingFace 資料集下載相關命令
     parser.add_argument(
         "--download-dataset",
-        metavar="DATASET_NAME",
-        help="從 HuggingFace Hub 下載資料集 (例如: cais/mmlu)",
+        nargs="+",
+        metavar="NAME",
+        help=(
+            "下載評測資料集。支援 benchmark 短名稱（如 mmlu, gsm8k）、"
+            "'all'（下載全部）、'list'（列出可用資料集）、或 HuggingFace ID（如 cais/mmlu）"
+        ),
     )
 
     parser.add_argument(
@@ -796,20 +802,54 @@ def main() -> int:
 
     # HuggingFace 資料集相關命令
     if args.download_dataset:
-        try:
+        from .benchmarks import BENCHMARK_REGISTRY, download_benchmarks, list_benchmarks
+
+        names = args.download_dataset
+
+        # twinkle-eval --download-dataset list
+        if names == ["list"]:
+            list_benchmarks()
+            return 0
+
+        # 區分 registry 短名稱 vs HuggingFace ID
+        registry_names = []
+        hf_ids = []
+        for name in names:
+            if name == "all" or name in BENCHMARK_REGISTRY:
+                registry_names.append(name)
+            elif "/" in name:
+                hf_ids.append(name)
+            else:
+                # 不在 registry 也不含 /，視為無效名稱
+                print(f"❌ 找不到資料集：{name}")
+                print("   使用 --download-dataset list 查看可用的 benchmark 名稱")
+                print("   或使用 HuggingFace ID 格式（如 cais/mmlu）")
+                return 1
+
+        result = 0
+
+        # 下載 registry 中的 benchmark
+        if registry_names:
+            result = download_benchmarks(registry_names, output_dir=args.output_dir)
+
+        # 下載直接指定的 HuggingFace ID（保留向下相容）
+        if hf_ids:
             from .datasets import download_huggingface_dataset
 
-            download_huggingface_dataset(
-                dataset_name=args.download_dataset,
-                subset=args.dataset_subset,
-                split=args.dataset_split,
-                output_dir=args.output_dir,
-            )
-            print(f"✅ 資料集下載完成，已快取到 HuggingFace 目錄")
-            return 0
-        except Exception as e:
-            print(f"❌ 下載資料集失敗: {e}")
-            return 1
+            for hf_id in hf_ids:
+                try:
+                    download_huggingface_dataset(
+                        dataset_name=hf_id,
+                        subset=args.dataset_subset,
+                        split=args.dataset_split,
+                        output_dir=args.output_dir,
+                    )
+                    print(f"✅ {hf_id} 下載完成")
+                except Exception as e:
+                    print(f"❌ 下載 {hf_id} 失敗: {e}")
+                    result = 1
+
+        return result
 
     if args.dataset_info:
         try:
