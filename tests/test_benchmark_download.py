@@ -59,13 +59,13 @@ class TestBenchmarkRegistry:
             "mmlu", "mmlu_pro", "tmmluplus", "mmlu_redux", "supergpqa", "gpqa",
             "formosa_bench", "gsm8k", "aime2025", "bbh", "ifeval", "ifbench",
             "bfcl", "spider", "needlebench", "longbench", "wikieval", "bird",
-            "spider2_lite",
+            "spider2_lite", "librispeech", "aishell1", "fleurs", "common_voice",
         ]
         for name in expected:
             assert name in BENCHMARK_REGISTRY, f"缺少預期的 benchmark: {name}"
 
     def test_benchmark_count(self):
-        assert len(BENCHMARK_REGISTRY) >= 19
+        assert len(BENCHMARK_REGISTRY) >= 23
 
 
 # ---------------------------------------------------------------------------

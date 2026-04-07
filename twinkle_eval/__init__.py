@@ -54,10 +54,12 @@ from .metrics import (
     Text2SQLScorer,
     RegexMatchExtractor,
     StringMatchScorer,
+    ASRExtractor,
+    ASRScorer,
     create_metric_pair,
     get_available_methods,
 )
-from .models import LLM, LLMFactory, OpenAIModel
+from .models import LLM, LLMFactory, OpenAIModel, WhisperModel
 
 # ── 向下相容的別名（舊程式碼仍可正常 import）──────────────────────────────────
 # evaluation_strategies 模組中的舊類別名稱對應
@@ -79,6 +81,7 @@ __all__ = [
     "LLM",
     "LLMFactory",
     "OpenAIModel",
+    "WhisperModel",
     "Dataset",
     "Evaluator",
     "RateLimiter",
@@ -96,6 +99,8 @@ __all__ = [
     "Text2SQLScorer",
     "RegexMatchExtractor",
     "StringMatchScorer",
+    "ASRExtractor",
+    "ASRScorer",
     "create_metric_pair",
     "get_available_methods",
     # 向下相容別名（舊名稱）

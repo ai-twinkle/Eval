@@ -69,6 +69,9 @@ math = [
 tool = [
     "jsonschema>=4.0.0",
 ]
+asr = [
+    "jiwer>=3.0.0",
+]
 ifeval = [
     "langdetect>=1.0.9",
     "nltk>=3.8.0",

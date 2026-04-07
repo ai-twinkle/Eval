@@ -504,6 +504,140 @@ class Evaluator:
                         "total": len(all_inst_loose),
                     }
 
+            elif getattr(self.extractor, "uses_audio", False):
+                # ── ASR 音檔路徑 ───────────────────────────────────────────
+                future_tasks = []
+                future_to_data: Dict[Any, Any] = {}
+
+                for idx, q in enumerate(tqdm(dataset, desc="處理題庫中")):
+                    try:
+                        correct_answer = q["answer"]
+                        # 音檔路徑：支援 audio_path 欄位或 question 欄位
+                        audio_path = q.get("audio_path") or q.get("question", "")
+                    except (KeyError, AttributeError) as e:
+                        log_error(f"問題 {idx + 1} 資料格式錯誤: {e}")
+                        continue
+
+                    self.rate_limiter.wait()
+
+                    if hasattr(self.llm, "call") and getattr(type(self.llm), "__name__", "") == "WhisperModel":
+                        # Whisper API 路徑：直接傳音檔路徑
+                        future = executor.submit(
+                            self.llm.call,
+                            audio_path,
+                            prompt_lang,
+                            self.eval_method,
+                            False,
+                            1,
+                            self.model_overrides,
+                        )
+                    else:
+                        # Chat Completions 多模態路徑：建構含音檔 URL 的 messages
+                        import base64
+                        audio_url = audio_path
+                        if os.path.isfile(audio_path):
+                            with open(audio_path, "rb") as af:
+                                b64 = base64.b64encode(af.read()).decode("utf-8")
+                            ext = os.path.splitext(audio_path)[1].lstrip(".")
+                            audio_url = f"data:audio/{ext};base64,{b64}"
+
+                        messages = [
+                            {
+                                "role": "user",
+                                "content": [
+                                    {"type": "audio_url", "audio_url": {"url": audio_url}},
+                                    {"type": "text", "text": "請將這段語音轉錄為文字，只輸出轉錄結果。"},
+                                ],
+                            }
+                        ]
+                        future = executor.submit(
+                            self.llm.call,
+                            "",
+                            prompt_lang,
+                            self.eval_method,
+                            False,
+                            1,
+                            self.model_overrides,
+                            None,
+                            messages,
+                        )
+
+                    future_tasks.append(future)
+                    future_to_data[future] = (audio_path, correct_answer, idx)
+
+                # 累積 ASR 指標
+                all_wer: list = []
+                all_cer: list = []
+
+                for future in tqdm(
+                    as_completed(future_tasks), total=len(future_tasks), desc="處理回應中"
+                ):
+                    llm_chat_completion = future.result()
+                    usage = llm_chat_completion.usage
+                    audio_path, correct_answer, question_id = future_to_data[future]
+
+                    message = llm_chat_completion.choices[0].message
+                    content = message.content or ""
+
+                    predicted_raw = self.extractor.extract(content)
+                    predicted_answer = (
+                        None if predicted_raw is None
+                        else self.scorer.normalize(predicted_raw)
+                    )
+                    gold_normalized = self.scorer.normalize(correct_answer)
+
+                    # 計算完整 ASR 指標
+                    asr_detail: Dict[str, Any] = {}
+                    if hasattr(self.scorer, "score_full") and predicted_answer is not None:
+                        try:
+                            asr_detail = self.scorer.score_full(predicted_raw, correct_answer)
+                            all_wer.append(asr_detail.get("wer", 0.0))
+                            all_cer.append(asr_detail.get("cer", 0.0))
+                        except ImportError:
+                            pass  # jiwer 未安裝，跳過 WER/CER 計算
+
+                    is_correct = (
+                        False if predicted_answer is None
+                        else self.scorer.score(predicted_answer, gold_normalized)
+                    )
+
+                    question_stats.setdefault(question_id, {"correct": 0, "total": 0})
+                    if is_correct:
+                        question_stats[question_id]["correct"] += 1
+                        total_correct_samples += 1
+                    if predicted_answer is None:
+                        total_unparsed += 1
+                    question_stats[question_id]["total"] += 1
+                    total_samples += 1
+
+                    result_entry: Dict[str, Any] = {
+                        "question_id": question_id,
+                        "sample_id": 0,
+                        "question": audio_path,
+                        "correct_answer": correct_answer,
+                        "llm_output": content,
+                        "llm_reasoning_output": None,
+                        "predicted_answer": predicted_answer,
+                        "is_correct": is_correct,
+                        "usage_completion_tokens": usage.completion_tokens if usage else None,
+                        "usage_prompt_tokens": usage.prompt_tokens if usage else None,
+                        "usage_total_tokens": usage.total_tokens if usage else None,
+                    }
+                    result_entry.update(asr_detail)
+                    detailed_results.append(result_entry)
+
+                # 在 metrics 中補充 ASR 指標
+                if all_wer:
+                    question_stats["_asr_wer"] = {
+                        "sum": sum(all_wer),
+                        "count": len(all_wer),
+                    }
+                if all_cer:
+                    question_stats["_asr_cer"] = {
+                        "sum": sum(all_cer),
+                        "count": len(all_cer),
+                    }
+
             else:
                 # ── 文字解析路徑 ────────────────────────────────────────────
                 future_tasks = []
@@ -611,7 +745,10 @@ class Evaluator:
 
             # 計算 pass@k
             pass_at_k_values = []
-            for stats in question_stats.values():
+            for key, stats in question_stats.items():
+                # 跳過內部統計 key（IFEval / ASR）
+                if isinstance(key, str) and key.startswith("_"):
+                    continue
                 c = stats["correct"]
                 n = stats["total"]
                 k = self.pass_k
@@ -649,6 +786,24 @@ class Evaluator:
             "unparsed_rate": unparsed_rate,
             "total_count": total_samples,
         }
+
+        # ASR 額外指標
+        if getattr(self.extractor, "uses_audio", False):
+            asr_wer = question_stats.get("_asr_wer", {})
+            asr_cer = question_stats.get("_asr_cer", {})
+            avg_wer = asr_wer["sum"] / asr_wer["count"] if asr_wer.get("count") else None
+            avg_cer = asr_cer["sum"] / asr_cer["count"] if asr_cer.get("count") else None
+            if avg_wer is not None:
+                metrics["avg_wer"] = round(avg_wer, 6)
+            if avg_cer is not None:
+                metrics["avg_cer"] = round(avg_cer, 6)
+            if avg_wer is not None or avg_cer is not None:
+                parts = []
+                if avg_wer is not None:
+                    parts.append(f"WER={avg_wer:.2%}")
+                if avg_cer is not None:
+                    parts.append(f"CER={avg_cer:.2%}")
+                print(f"  ASR 指標: {' | '.join(parts)}")
 
         # IFEval 額外指標
         if getattr(self.extractor, "uses_ifeval", False):

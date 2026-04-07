@@ -157,6 +157,39 @@ BENCHMARK_REGISTRY: Dict[str, Dict[str, Any]] = {
         "eval_method": "ragas",
         "license": "Apache-2.0",
     },
+    # ── ASR（語音辨識）────────────────────────────────────────────────────
+    "librispeech": {
+        "source": "huggingface",
+        "hf_id": "openslr/librispeech_asr",
+        "split": "test.clean",
+        "description": "LibriSpeech test-clean — 英文朗讀語音辨識",
+        "eval_method": "asr",
+        "license": "CC-BY-4.0",
+    },
+    "aishell1": {
+        "source": "huggingface",
+        "hf_id": "carlot/AIShell",
+        "split": "test",
+        "description": "Aishell-1 — 中文普通話語音辨識（178 小時）",
+        "eval_method": "asr",
+        "license": "Apache-2.0",
+    },
+    "fleurs": {
+        "source": "huggingface",
+        "hf_id": "google/fleurs",
+        "split": "test",
+        "description": "Fleurs — 102 語言多語言語音辨識",
+        "eval_method": "asr",
+        "license": "CC-BY-4.0",
+    },
+    "common_voice": {
+        "source": "huggingface",
+        "hf_id": "mozilla-foundation/common_voice_17_0",
+        "split": "test",
+        "description": "Common Voice 17.0 — 群眾外包多語言語音辨識",
+        "eval_method": "asr",
+        "license": "CC0-1.0",
+    },
     # ── Text-to-SQL ───────────────────────────────────────────────────────
     "spider": {
         "source": "huggingface",

@@ -26,6 +26,8 @@ from .extractors.text2sql import Text2SQLExtractor
 from .extractors.regex_match import RegexMatchExtractor
 from .scorers.text2sql import Text2SQLScorer
 from .scorers.string_match import StringMatchScorer
+from .extractors.asr import ASRExtractor
+from .scorers.asr import ASRScorer
 
 # Preset：evaluation_method 字串 → (Extractor 類別, Scorer 類別)
 PRESETS: Dict[str, Tuple[Type[Extractor], Type[Scorer]]] = {
@@ -42,6 +44,7 @@ PRESETS: Dict[str, Tuple[Type[Extractor], Type[Scorer]]] = {
     "ragas": (RAGASExtractor, RAGASScorer),
     "text2sql": (Text2SQLExtractor, Text2SQLScorer),
     "regex_match": (RegexMatchExtractor, StringMatchScorer),
+    "asr": (ASRExtractor, ASRScorer),
 }
 
 
@@ -120,4 +123,6 @@ __all__ = [
     "Text2SQLScorer",
     "RegexMatchExtractor",
     "StringMatchScorer",
+    "ASRExtractor",
+    "ASRScorer",
 ]

@@ -1,0 +1,42 @@
+# Twinkle Eval — ASR（語音辨識）評測設定範本
+#
+# 支援兩種 API 模式：
+#   1. Whisper API（/v1/audio/transcriptions）：設定 llm_api.type 為 "whisper"
+#   2. Chat Completions 多模態（Qwen2-Audio 等）：設定 llm_api.type 為 "openai"
+#
+# 安裝：pip install twinkle-eval[asr]
+
+llm_api:
+  # --- Whisper API 模式 ---
+  type: "whisper"                              # "whisper" 或 "openai"
+  base_url: "http://localhost:8000/v1"         # Whisper API 端點
+  api_key: "your-api-key"
+  api_rate_limit: -1                           # QPS，-1 為不限制
+  max_retries: 3
+  timeout: 300
+  disable_ssl_verify: false
+
+  # --- Chat Completions 多模態模式 ---
+  # type: "openai"
+  # base_url: "http://localhost:8000/v1"       # 支援音檔的 Chat API 端點
+  # api_key: "your-api-key"
+
+model:
+  name: "whisper-large-v3"                     # 模型名稱
+  temperature: 0.0
+
+evaluation:
+  dataset_paths:
+    - "datasets/librispeech/"
+    - "datasets/aishell1/"
+  evaluation_method: "asr"                     # 固定為 "asr"
+  # ASR 專用設定（透過 strategy_config 傳遞）
+  strategy_config:
+    asr_language: "zh"                         # 語言代碼（zh/en/ja 等）
+    asr_metric: "auto"                         # "auto"（依語言自動選）/ "wer" / "cer"
+    remove_punctuation: true                   # 移除標點
+    to_lower: true                             # 轉小寫
+    normalize_unicode: true                    # NFKC 正規化
+
+logging:
+  level: "INFO"
