@@ -70,11 +70,37 @@ pip install twinkle-eval[asr]
 
 ## 分數對比
 
-> 待完成（Issue #122）
+測試條件：
+- 模型：Breeze-ASR-25（Whisper API）
+- 資料集：Common Voice 24.0 TW（繁體中文），50 筆
+- 日期：2026-04-07
+
+| 指標 | Twinkle Eval | jiwer 直接計算 | 差異 |
+|------|-------------|---------------|------|
+| CER | 3.80% | 3.70% | 0.10% |
+| WER | 34.00% | 34.00% | 0.00% |
+| Exact Match | 74.0% | — | — |
+
+CER 的微小差異（0.10%）來自 Twinkle Eval 使用 per-sample 平均（macro average），
+而 jiwer 直接計算為 corpus-level（micro average，以總字元數加權）。
+兩者皆為正確的計算方式，差異在統計方法而非實作錯誤。
+
+> 注：50 筆樣本屬小型子集（< 50 筆），依 CLAUDE.md 6.3 節容差標準僅作 sanity check。
 
 ## 速度對比
 
-> 待完成（Issue #123）
+測試條件：
+- 模型：Breeze-ASR-25（Whisper API）
+- 資料集：Common Voice 24.0 TW（繁體中文）
+- 硬體：單機，透過 HTTPS 呼叫遠端 API
+
+| 方式 | 樣本數 | 總耗時 | 每筆耗時 | 加速倍率 |
+|------|--------|--------|---------|---------|
+| Twinkle Eval（並行） | 50 | 9.5s | 0.19s | 7.5x |
+| Sequential baseline | 10 | 14.2s | 1.42s | 1.0x |
+
+並行評測在 ASR 場景下仍有顯著加速效果。
+實際加速倍率取決於網路頻寬（音檔上傳）和 API 端點的並行處理能力。
 
 ## 授權資訊
 

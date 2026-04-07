@@ -62,12 +62,9 @@
 
 ### ASR（語音辨識）
 
-> Example dataset 待準備（Issue #120）。ASR 資料集因含音檔，example 樣本將在實際音檔取得後建立。
-
 | 目錄 | 來源 | 題數 | 評測方法 | 說明 |
 |------|------|------|----------|------|
-| `librispeech/` | [openslr/librispeech_asr](https://huggingface.co/datasets/openslr/librispeech_asr) | TBD | `asr` | 英文朗讀語音辨識（WER） |
-| `aishell1/` | [carlot/AIShell](https://huggingface.co/datasets/carlot/AIShell) | TBD | `asr` | 中文普通話語音辨識（CER） |
+| `asr/` | [OKHand/Clean_Common_Voice_Speech_24.0-TW](https://huggingface.co/datasets/OKHand/Clean_Common_Voice_Speech_24.0-TW) | 10 | `asr` | 繁體中文語音辨識（CER），含 WAV 音檔 + reference transcription |
 
 ### Regex Match（BBH 等混合格式）
 
