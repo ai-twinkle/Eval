@@ -5,6 +5,20 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.7.0] - 2026-04-08
+
+### Added
+- **ASR 語音辨識評測**（Milestone #21）：`WhisperModel` 支援 `/v1/audio/transcriptions` Whisper API 與 Chat Completions 多模態兩種路徑；`ASRExtractor` + `ASRScorer` 自動依語言選擇 WER（英文）或 CER（中文）；jiwer 作為 optional dependency（`pip install twinkle-eval[asr]`）
+- **4 個 ASR Benchmark**：LibriSpeech（英文）、Aishell-1（中文）、Fleurs（102 語言）、Common Voice 17.0（多語言），總計 23 個可下載 benchmark
+- Evaluator 新增音檔評測路徑，支援 `uses_audio` flag 自動分流
+- ASR config template（`twinkle_eval/templates/asr.yaml`）
+- Example dataset：10 筆 Common Voice TW 繁體中文音檔（`datasets/example/asr/`）
+- `docs/evals/asr.md`：含分數對比（CER 3.80% vs jiwer 3.70%）與速度對比（7.5x 並行加速）
+- 61 個 ASR 測試（`tests/test_asr.py`）
+
+### Changed
+- README.md 新增 ASR 區塊（23 benchmarks、9 大評測類型）
+
 ## [2.6.0] - 2026-04-07
 
 ### Added
