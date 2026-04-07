@@ -1,398 +1,329 @@
 ![Twinkle Eval](assets/Twinkle_Eval.png)
 
-# 🌟 Twinkle Eval：高效且準確的 AI 評測工具
+# Twinkle Eval -- High-Performance LLM Evaluation Framework
 
-[English](README_EN.md) | 繁體中文
+[🇺🇸 English](README_EN.md) | 🇹🇼 繁體中文
 
-[![Python](https://img.shields.io/badge/python-≥3.10-blue.svg?logo=python)](https://www.python.org)
-![Project Status](https://img.shields.io/badge/status-active-brightgreen)
-![Platform](https://img.shields.io/badge/platform-Windows%20|%20Linux-blue)
-
-![GitHub license](https://img.shields.io/github/license/ai-twinkle/Eval)
-![GitHub issues](https://img.shields.io/github/issues/ai-twinkle/Eval)
-![GitHub stars](https://img.shields.io/github/stars/ai-twinkle/Eval?style=social)
-![GitHub forks](https://img.shields.io/github/forks/ai-twinkle/Eval?style=social)
-[![GitHub pull request](https://img.shields.io/badge/PRs-welcome-blue)](https://github.com/ai-twinkle/Eval/pulls)
-
+[![Python](https://img.shields.io/badge/python-≥3.11-blue.svg?logo=python)](https://www.python.org)
+[![PyPI](https://img.shields.io/pypi/v/twinkle-eval)](https://pypi.org/project/twinkle-eval/)
+![License](https://img.shields.io/github/license/ai-twinkle/Eval)
 ![GitHub last commit](https://img.shields.io/github/last-commit/ai-twinkle/Eval)
-![GitHub repo size](https://img.shields.io/github/repo-size/ai-twinkle/Eval)
-![GitHub top language](https://img.shields.io/github/languages/top/ai-twinkle/Eval)
-![GitHub languages](https://img.shields.io/github/languages/count/ai-twinkle/Eval)
+![GitHub stars](https://img.shields.io/github/stars/ai-twinkle/Eval?style=social)
 
 [![Discord](https://img.shields.io/discord/1310544431983759450?label=Twinkle%20AI&logo=discord&style=for-the-badge)](https://discord.gg/Cx737yw4ed)
-[![Hugging Face](https://img.shields.io/badge/🤗%20Visit%20Huggingface-twinkle--ai-blue?style=for-the-badge)](https://huggingface.co/twinkle-ai)
-[![LinkedIn](https://img.shields.io/badge/LinkedIn-Visit%20My%20Profile-blue?logo=linkedin&style=flat)](https://linkedin.com/company/twinkle-ai)
-[![Website](https://img.shields.io/badge/Website-twinkleai.tw-blue?style=flat)](https://twinkleai.tw/)
+[![Hugging Face](https://img.shields.io/badge/Visit%20Huggingface-twinkle--ai-blue?style=for-the-badge)](https://huggingface.co/twinkle-ai)
 
-[![Open in Colab](https://img.shields.io/badge/Open%20in-Colab-orange?logo=google-colab&style=for-the-badge)](https://colab.research.google.com/github/LiuYuWei/llm-colab-application/blob/main/Simon_LLM_Application_Twinkle_Eval_Tool_Google_Gemini_Model_Evaluation.ipynb)
+Twinkle Eval 是一個以**並行 API 請求**為核心的 LLM 評測框架，支援選擇題、數學推理、指令遵循、函式呼叫、長文本理解、RAG、Text-to-SQL 等多類型評測。透過 OpenAI 相容 API 呼叫已部署的模型端點，單機即可完成完整評測流程。
 
-本專案為 LLM（Large Language Model）評測框架，採用並行且隨機化測試方法，提供客觀的模型性能分析與穩定性評估，並支援多種常見評測數據集。
+---
 
 ## 目錄
 
-- [功能特色](#功能特色)
-- [性能指標](#性能指標)
-- [技術特點](#技術特點)
-  - [評測方法](#評測方法)
-  - [支援格式及常見數據集](#支援格式及常見數據集)
-  - [API 效能設定](#api-效能設定)
-- [安裝設定](#安裝設定)
-- [使用方式](#使用方式)
-- [設定檔說明](#設定檔說明)
-  - [LLM API 設定](#llm-api-設定)
-  - [模型設定](#模型設定)
-  - [評測設定](#評測設定)
-  - [日誌設定](#日誌設定)
-- [輸出結果](#輸出結果)
-- [模型實測結果排行榜](#模型實測結果排行榜)
+- [為什麼選擇 Twinkle Eval](#為什麼選擇-twinkle-eval)
+- [支援的評測資料集](#支援的評測資料集)
+- [評測方法一覽](#評測方法一覽)
+- [安裝](#安裝)
+- [快速開始](#快速開始)
+- [CLI 參考](#cli-參考)
+- [設定檔](#設定檔)
+- [輸出格式](#輸出格式)
+- [排行榜](#排行榜)
 - [貢獻者](#貢獻者)
 - [授權條款](#授權條款)
 - [引用](#引用)
 - [致謝](#致謝)
 
-## 功能特色
+---
 
-- **自動化評測多個檔案**：可批次處理並統一生成評測結果。
-- **可自訂評測參數與生成控制**：可設定溫度、top_p 等生成參數。
-- **選項隨機排列功能**：避免模型因選項順序產生偏好。
-- **Pattern 或 Box 雙模式評測**：支援文字匹配或框選評分邏輯。
-- **多次測試平均分析**：設定測試回合數以觀察模型表現穩定性。
-- **計算平均正確率與穩定性指標**：量化模型答題準確度與波動程度。
-- **紀錄 LLM 推論與統計結果**：用於後續分析模型在各類題型的表現。
-- **支援 OpenAI API 格式**：相容於常見的 GPT API 輸入與輸出格式。
-- **安全地處理 API 金鑰**：避免金鑰暴露於程式碼或日誌中。
-- **API 請求限流控制與自動重試機制**：減少錯誤發生並提高 API 請求成功率。
+## 為什麼選擇 Twinkle Eval
 
-## 性能指標
-
-下圖展示了在 [ikala/tmmluplus](https://huggingface.co/datasets/ikala/tmmluplus) - **basic_medical_science**（共 954 題）子任務上，Twinkle Eval 與現有工具 [iKala/ievals](https://github.com/iKala/ievals) 在三種模型下的推論時間比較：
+2025 年推理模型（reasoning model）大量出現，每次 API 回應時間大幅增加。傳統評測框架逐題同步呼叫，一個 benchmark 動輒數小時。Twinkle Eval 以 `ThreadPoolExecutor` 並行送出請求，實測比 [iKala/ievals](https://github.com/iKala/ievals) 快 **9--17 倍**，讓評測不再是訓練迭代的瓶頸。
 
 ![TMMLU 評測時間統計](assets/tmmlu_eval_time_rounded_seconds.png)
 
-- [meta-llama/Llama-3.2-3B-Instruct](https://huggingface.co/meta-llama/Llama-3.2-3B-Instruct) (非推理任務)：Twinkle Eval 快了 **9.4 倍**。
-- [deepseek-ai/DeepSeek-R1-Distill-Llama-8B](https://huggingface.co/deepseek-ai/DeepSeek-R1-Distill-Llama-8B) (推理任務)：Twinkle Eval 快了 **16.9 倍**。
-- [mistralai/Mistral-Small-24B-Instruct-2501](https://huggingface.co/mistralai/Mistral-Small-24B-Instruct-2501) (非推理任務)：Twinkle Eval 快了 **14.5 倍**。
+上圖為 [ikala/tmmluplus](https://huggingface.co/datasets/ikala/tmmluplus) -- basic_medical_science（954 題）的實測結果：
 
-這項實驗結果顯示，**Twinkle Eval 在不同模型大小與任務類型下皆能顯著提升效能，最高達近 17 倍速度優勢**，同時保持準確率一致。這對於需要大量評測的 LLM 開發工作流程，能大幅縮短週期、節省成本。
+| 模型 | ievals | Twinkle Eval | 加速倍率 |
+|------|--------|-------------|---------|
+| Llama-3.2-3B-Instruct | 325s | 34s | 9.4x |
+| DeepSeek-R1-Distill-Llama-8B | 1,672s | 99s | 16.9x |
+| Mistral-Small-24B-Instruct | 1,299s | 90s | 14.5x |
 
-## 技術特點
+**其他特點：**
 
-### 評測方法
+- 選項隨機排列，消除位置偏好（[參考](https://arxiv.org/html/2406.19470v1)）
+- 多次執行 + 標準差，量化模型穩定性
+- Config-driven 設計，所有行為透過 YAML 控制
+- `pip install twinkle-eval` 即裝即用，不需要 GPU 或叢集
 
-- **隨機化測試**：參考 [Changing Answer Order Can Decrease MMLU Accuracy](https://arxiv.org/html/2406.19470v1)，實作**選項隨機排列功能**，更能客觀的評估模型能力。
-- **穩定性分析**：支援多次測試並進行統計分析。
-- **格式控制**：指定 `\box{選項}` 或 `\boxed{選項}` 等框選格式，嚴格管理輸出呈現樣式。
-- **錯誤處理**：自動重試與超時控制機制。
+---
 
-### 支援格式及常見資料集
+## 支援的評測資料集
 
-任何符合以下格式的 `.csv`、`.json`、`.jsonl` 或 `.parquet` 檔案，內容需包含下列欄位格式（不限於 TMMLU+）：
+Twinkle Eval 內建 19 個評測資料集的下載支援，涵蓋 8 大評測類型。所有資料集皆可透過 `--download-dataset` 一鍵下載。
 
-```csv
-  question,A,B,C,D,answer
-```
+### 選擇題（Multiple Choice）
 
-以下列出已知評測集：
+| 資料集 | 來源 | 說明 | 評測方法 |
+|--------|------|------|---------|
+| [MMLU](https://huggingface.co/datasets/cais/mmlu) | HuggingFace | 57 科目大規模多任務語言理解 | `box` |
+| [MMLU-Pro](https://huggingface.co/datasets/TIGER-Lab/MMLU-Pro) | HuggingFace | 更具鑑別力的多任務理解（10 選項） | `box` |
+| [MMLU-Redux](https://huggingface.co/datasets/edinburgh-dawg/mmlu-redux) | HuggingFace | MMLU 修正版（3000 題人工重新標注） | `box` |
+| [TMMLU+](https://huggingface.co/datasets/ikala/tmmluplus) | HuggingFace | 繁體中文多任務語言理解 | `box` |
+| [SuperGPQA](https://huggingface.co/datasets/m-a-p/SuperGPQA) | HuggingFace | 研究生等級跨領域問答 | `box` |
+| [GPQA](https://huggingface.co/datasets/Idavidrein/gpqa) | HuggingFace | Google 研究等級科學問答（gated） | `box` |
+| [Formosa-bench](https://huggingface.co/datasets/lianghsun/Formosa-bench) | HuggingFace | 台灣在地化多科目評測 | `box` |
 
-- [TMMLU+](https://huggingface.co/datasets/ikala/tmmluplus)
-- [MMLU](https://github.com/hendrycks/test)
-- [tw-legal-benchmark-v1](https://huggingface.co/datasets/lianghsun/tw-legal-benchmark-v1)
-- [Formosa-bench](https://huggingface.co/datasets/lianghsun/Formosa-bench)
+### 數學推理（Math Reasoning）
 
-### API 效能設定
+| 資料集 | 來源 | 說明 | 評測方法 |
+|--------|------|------|---------|
+| [GSM8K](https://huggingface.co/datasets/openai/gsm8k) | HuggingFace | 小學數學推理（8.5K 題） | `math` |
+| [AIME 2025](https://huggingface.co/datasets/MathArena/aime_2025) | HuggingFace | 美國數學邀請賽（高難度） | `math` |
 
-- 設定請求限流：無限制或指定 QPS（Queries Per Second）數值。
-- 超時設定。
-- 可選是否進行 SSL 驗證。
-- 錯誤恢復機制。
+### 正則匹配（Regex Match）
 
-## 安裝設定
+| 資料集 | 來源 | 說明 | 評測方法 |
+|--------|------|------|---------|
+| [BIG-Bench Hard](https://huggingface.co/datasets/lukaemon/bbh) | HuggingFace | 27 個高難度推理子任務 | `regex_match` |
 
-### 方法一：使用 pip 安裝（推薦）
+### 指令遵循（Instruction Following）
+
+| 資料集 | 來源 | 說明 | 評測方法 |
+|--------|------|------|---------|
+| [IFEval](https://huggingface.co/datasets/google/IFEval) | HuggingFace | Google 25 類指令遵循評測 | `ifeval` |
+| [IFBench](https://huggingface.co/datasets/Yale-LILY/IFBench) | HuggingFace | 58 類 OOD 指令遵循評測 | `ifbench` |
+
+### 函式呼叫（Function Calling）
+
+| 資料集 | 來源 | 說明 | 評測方法 |
+|--------|------|------|---------|
+| [BFCL](https://huggingface.co/datasets/gorilla-llm/Berkeley-Function-Calling-Leaderboard) | HuggingFace | Berkeley 函式呼叫排行榜 | `bfcl_fc` |
+
+### 長文本理解（Long Context）
+
+| 資料集 | 來源 | 說明 | 評測方法 |
+|--------|------|------|---------|
+| [NeedleBench](https://huggingface.co/datasets/opencompass/NeedleBench) | HuggingFace | 多語言大海撈針測試 | `niah` |
+| [LongBench](https://github.com/THUDM/LongBench) | GitHub | 中文段落檢索長文本理解 | `niah` |
+
+### RAG 品質評估
+
+| 資料集 | 來源 | 說明 | 評測方法 |
+|--------|------|------|---------|
+| [WikiEval](https://huggingface.co/datasets/explodinggradients/WikiEval) | HuggingFace | RAG 品質評估（RAGAS 框架） | `ragas` |
+
+### Text-to-SQL
+
+| 資料集 | 來源 | 說明 | 評測方法 |
+|--------|------|------|---------|
+| [Spider 1.0](https://huggingface.co/datasets/xlangai/spider) | HuggingFace | 跨資料庫 Text-to-SQL | `text2sql` |
+| [BIRD](https://bird-bench.github.io/) | GitHub | 大規模跨資料庫 Text-to-SQL（95 個資料庫） | `text2sql` |
+| [Spider 2.0-lite](https://github.com/xlang-ai/Spider2) | GitHub | 85 題 SQLite Text-to-SQL | `text2sql` |
+
+---
+
+## 評測方法一覽
+
+每種評測方法由一組 Extractor（從模型輸出提取答案）與 Scorer（評分）構成：
+
+| 方法名稱 | 適用場景 | 說明 |
+|---------|---------|------|
+| `pattern` | 選擇題 | 正則表達式匹配答案字母 |
+| `box` | 選擇題 | 從 `\boxed{}` 格式提取答案 |
+| `logit` | 選擇題 | 基於 log probability 評分（需 completions API） |
+| `math` | 數學推理 | 從 `\boxed{}` 提取 + MathRuler 語意等價判斷 |
+| `regex_match` | 自由格式推理 | 正則匹配 + 字串完全比對 |
+| `custom_regex` | 自訂格式 | 使用者自訂正則表達式 |
+| `ifeval` | 指令遵循 | Google IFEval 25 類指令檢查器 |
+| `ifbench` | 指令遵循 | Yale IFBench 58 類指令檢查器 |
+| `bfcl_fc` | 函式呼叫 | 透過 function calling API 呼叫並比對結果 |
+| `bfcl_prompt` | 函式呼叫 | 透過 prompt 產生 JSON 呼叫並比對結果 |
+| `niah` | 長文本 | 大海撈針（Needle in a Haystack）段落檢索 |
+| `ragas` | RAG | 以 LLM-as-Judge 評估 RAG 品質 |
+| `text2sql` | Text-to-SQL | SQL 執行結果比對 |
+
+---
+
+## 安裝
 
 ```bash
-# 從 PyPI 安裝（穩定版本）
+# 基本安裝
 pip install twinkle-eval
 
-# 或從 GitHub 安裝（最新版本）
-pip install git+https://github.com/ai-twinkle/Eval.git
+# 數學評測（GSM8K、AIME）
+pip install twinkle-eval[math]
+
+# 指令遵循（IFEval）
+pip install twinkle-eval[ifeval]
+
+# 指令遵循（IFBench）
+pip install twinkle-eval[ifbench]
+
+# 函式呼叫（BFCL）
+pip install twinkle-eval[tool]
+
+# Slurm 多節點 + HuggingFace 上傳
+pip install twinkle-eval[slurm]
+
+# 開發環境
+pip install twinkle-eval[dev]
+
+# 從原始碼安裝
+git clone https://github.com/ai-twinkle/Eval.git
+cd Eval && pip install -e ".[dev]"
 ```
 
-### 方法二：從原始碼安裝
+---
 
-1. 複製專案至本機
-   ```bash
-   git clone https://github.com/ai-twinkle/Eval.git
-   cd Eval
-   ```
+## 快速開始
 
-2. 安裝套件
-   ```bash
-   # 安裝正式版本
-   pip install .
-   
-   # 或安裝開發版本（包含開發工具）
-   pip install -e ".[dev]"
-   ```
-
-## 使用方式
-
-### 快速開始
-
-1. 安裝完成後，創建配置檔案：
-   ```bash
-   # 使用內建命令創建預設配置檔案
-   twinkle-eval --init
-   
-   # 編輯配置檔案
-   nano config.yaml
-   ```
-
-2. 準備評測資料集：
-   ```bash
-   mkdir datasets
-   # 將您的資料集檔案放入 datasets 目錄
-   ```
-
-3. 執行評測：
-   ```bash
-   twinkle-eval --config config.yaml
-   ```
-
-### 命令列選項
-
-安裝完成後，您可以使用 `twinkle-eval` 命令：
+### 1. 產生設定範本
 
 ```bash
-# 創建預設配置檔案
+# 列出所有可用範本
 twinkle-eval --init
 
-# 使用預設配置執行評測
-twinkle-eval
+# 產生選擇題評測設定檔
+twinkle-eval --init multiple_choice
 
-# 使用自定義配置檔案
-twinkle-eval --config path/to/your/config.yaml
+# 產生數學評測設定檔
+twinkle-eval --init math
 
-# 同時輸出多種格式的結果
-twinkle-eval --export json csv html
-
-# 列出支援的 LLM 類型
-twinkle-eval --list-llms
-
-# 列出支援的評測策略
-twinkle-eval --list-strategies
-
-# 列出支援的輸出格式
-twinkle-eval --list-exporters
-
-# 顯示版本資訊
-twinkle-eval --version
-
-# 顯示完整幫助
-twinkle-eval --help
+# 一次產生所有範本
+twinkle-eval --init all
 ```
 
-### Python API 使用
+可用範本：`multiple_choice`、`math`、`regex_match`、`ifeval`、`ifbench`、`bfcl`、`niah`、`ragas`、`text2sql`
 
-您也可以在 Python 程式中直接使用 Twinkle Eval：
+### 2. 下載評測資料集
+
+```bash
+# 列出所有可下載的資料集
+twinkle-eval --download-dataset list
+
+# 下載單一資料集
+twinkle-eval --download-dataset mmlu
+
+# 下載多個資料集
+twinkle-eval --download-dataset mmlu gsm8k ifeval
+
+# 下載全部 19 個資料集
+twinkle-eval --download-dataset all
+
+# 直接指定 HuggingFace ID（向下相容）
+twinkle-eval --download-dataset ikala/tmmluplus
+```
+
+### 3. 編輯設定檔
+
+將 `base_url` 指向你已部署的 OpenAI 相容 API 端點，填入 `api_key`，設定 `dataset_paths` 和 `evaluation_method`。
+
+### 4. 執行評測
+
+```bash
+# 正式執行
+twinkle-eval --config config.yaml
+
+# 驗證設定檔格式
+twinkle-eval --validate --config config.yaml
+
+# 預覽評測計畫（不呼叫 API）
+twinkle-eval --dry-run --config config.yaml
+
+# 從中斷點恢復
+twinkle-eval --resume 20260401_1430 --config config.yaml
+```
+
+### Python API
 
 ```python
 from twinkle_eval import TwinkleEvalRunner
 
-# 建立評測執行器
 runner = TwinkleEvalRunner("config.yaml")
-
-# 初始化
 runner.initialize()
-
-# 執行評測
 results = runner.run_evaluation(export_formats=["json", "csv"])
-
-print(f"評測完成！結果已儲存至：{results}")
 ```
 
-評測結果會儲存在 `results` 目錄中，檔名包含時間戳記。
+---
 
-## 程式碼架構
+## CLI 參考
 
-程式碼採用模組化設計，主要包含以下模組：
+| 選項 | 說明 |
+|------|------|
+| `--config PATH` | 指定設定檔路徑 |
+| `--init [NAME]` | 產生設定範本（無參數列出所有範本） |
+| `--download-dataset NAME [NAME ...]` | 下載評測資料集（支援短名稱、HuggingFace ID、`all`、`list`） |
+| `--validate` | 驗證設定檔格式與資料集路徑 |
+| `--dry-run` | 載入設定與資料集，顯示評測計畫但不呼叫 API |
+| `--resume TIMESTAMP` | 從指定時間戳的中斷點繼續評測 |
+| `--export FORMAT [FORMAT ...]` | 輸出格式（json, csv, html） |
+| `--finalize-results TIMESTAMP` | 合併分散式評測碎片並重新計算指標 |
+| `--hf-repo-id REPO` | 評測完成後上傳結果至 HuggingFace |
+| `--list-llms` | 列出支援的 LLM 類型 |
+| `--list-strategies` | 列出支援的評測方法 |
+| `--list-exporters` | 列出支援的輸出格式 |
+| `--version` | 顯示版本 |
 
-- **`cli.py`**: 命令列介面入口點
-- **`main.py`**: 主程式邏輯，處理評測流程控制
-- **`config.py`**: 配置管理，負責載入和驗證配置檔案
-- **`models.py`**: LLM 抽象層，支援多種 LLM API（目前支援 OpenAI 相容格式）
-- **`dataset.py`**: 資料集載入和處理，支援 JSON、JSONL、CSV、TSV、Parquet、Arrow 格式
-- **`evaluators.py`**: 評測核心邏輯，包含並行處理和進度追蹤
-- **`evaluation_strategies.py`**: 答案提取策略，包含 Pattern、Box、自定義正則三種策略
-- **`results_exporters.py`**: 結果輸出模組，支援 JSON、JSONL、CSV、HTML、Google Sheets 等格式
-- **`validators.py`**: 驗證工具，確保配置和資料集的正確性
-- **`exceptions.py`**: 自定義異常類別，提供精確的錯誤處理
-- **`logger.py`**: 日誌工具，處理日誌記錄與輸出
-- **`benchmark.py`**: 效能基準測試工具
-- **`google_services.py`**: Google Drive 和 Google Sheets 整合功能
+---
 
-這種模組化設計讓程式碼更容易維護和擴展，開發者可以輕鬆：
+## 設定檔
 
-- 新增支援新的 LLM API（透過 Factory 模式）
-- 實現新的答案提取策略（透過 Strategy 模式）
-- 增加新的輸出格式（透過 Exporter Factory）
-- 整合新的雲端服務（如 Google Drive、Google Sheets）
-
-## 設定檔說明
-
-設定檔使用 YAML 格式，包含以下主要區段：
-
-### LLM API 設定
+設定檔使用 YAML 格式。以下為選擇題評測的最小範例：
 
 ```yaml
 llm_api:
-  base_url: "http://your-openai-compatible-server/v1" # API 伺服器網址
-  api_key: "your-api-key" # API 金鑰
-  disable_ssl_verify: false # 是否停用 SSL 驗證
-  api_rate_limit: 2 # 每秒請求限制（-1 為不限制）
-  max_retries: 5 # API 呼叫失敗時的重試次數
-  timeout: 600 # API 呼叫的超時時間 (秒)
-```
+  base_url: "http://localhost:8000/v1"
+  api_key: "your-api-key"
+  api_rate_limit: -1        # QPS，-1 為不限制
+  max_retries: 5
+  timeout: 600
 
-### 模型設定
-
-```yaml
 model:
-  name: "model-name" # 模型名稱
-  temperature: 0.0 # 溫度參數
-  top_p: 0.9 # Top-p 機率閾值
-  max_tokens: 4096 # 最大輸出 token 數
-  frequency_penalty: 0.0 # 頻率懲罰
-  presence_penalty: 0.0 # 存在懲罰
-```
+  name: "your-model-name"
+  temperature: 0.0
+  max_tokens: 4096
 
-### 評測設定
-
-```yaml
 evaluation:
-  dataset_paths: # 資料集路徑
-    - "datasets/dataset1/"
-    - "datasets/dataset2/"
-  evaluation_method: "box" # 評測方法（支援 "pattern" 或 "box"）
-  system_prompt:        # 系統提示詞，僅於 box 評測方法中使用
+  dataset_paths:
+    - "datasets/mmlu/"
+    - "datasets/tmmluplus/"
+  evaluation_method: "box"
+  system_prompt:
     zh: |
-      使用者將提供一個題目，並附上選項 A、B、C、D
-      請仔細閱讀題目要求，根據題意選出最符合的選項，並將選項以以下格式輸出：
-      \box{選項}
-      請確保僅將選項包含在 { } 中，否則將不計算為有效答案。
-      務必精確遵循輸出格式，避免任何多餘內容或錯誤格式。
+      使用者將提供一個題目，並附上選項。
+      請選出最正確的選項，以 \box{選項} 格式回答。
     en: |
-      The user will provide a question along with options A, B, C, and D.
-      Please read the question carefully and select the option that best fits the requirements.
-      Output the selected option in the following format:
-      \box{Option}
-      Make sure to include only the option within the curly braces; otherwise, it will not be considered a valid answer.
-      Strictly follow the output format and avoid any extra content or incorrect formatting.
+      Select the best option and answer in \box{Option} format.
   datasets_prompt_map:
-    "datasets/mmlu/": "en" # 指定資料集使用英文提示詞
-  repeat_runs: 5 # 單一 datasets 重複執行次數
-  shuffle_options: true # 是否對選項進行隨機排序
-```
+    "datasets/mmlu/": "en"
+  repeat_runs: 3
+  shuffle_options: true
 
-### 日誌設定
-
-```yaml
 logging:
-  level: "INFO" # 日誌等級（可選 DEBUG, INFO, WARNING, ERROR）
+  level: "INFO"
 ```
 
-## 輸出結果
+其他評測類型的設定範本可透過 `twinkle-eval --init` 取得。完整設定欄位說明請參閱各範本檔案中的註解。
 
-本專案主要輸出 `results_{timestamp}.json` 摘要結果，並可選擇輸出 `eval_results_{timestamp}.jsonl` 詳細結果（使用 JSONL 格式匯出時）。
+---
 
-### `results_{timestamp}.json`
+## 輸出格式
 
-這個檔案主要用來**統整整份評測的摘要資訊**，適合：
+評測結果儲存在 `results/` 目錄：
 
-- 快速查看模型在多份資料集上的表現
-- 對比不同模型、設定的平均準確率
-- 對照使用的模型參數、API 設定
-- 可搭配 timestamp 作為評測版本控制紀錄依據
+| 檔案 | 格式 | 內容 |
+|------|------|------|
+| `results_{timestamp}.json` | JSON | 整體評測摘要（設定、各資料集 accuracy、執行時間） |
+| `eval_results_{timestamp}_run{N}.jsonl` | JSONL | 每題詳細記錄（題目、正確答案、預測答案、是否正確） |
 
-```json
-{
-  "timestamp": "20250314_1158", // 評測執行的時間戳記
-  "results": [
-    // 各個測試檔案的評測結果
-    {
-      "file": "datasets/test/basic_medical_science_train.csv", // 測試檔案路徑
-      "accuracy": 0.4 // 模型在該檔案上的正確率
-    },
-    {
-      "file": "datasets/test/culinary_skills_dev.csv",
-      "accuracy": 0.4
-    }
-  ],
-  "average_accuracy": 0.4, // 所有資料集的平均正確率
-  "config": {
-    "llm_api": {
-      "base_url": "http://localhost:8002/v1/", // 呼叫模型的 API 端點
-      "api_key": "EMPTY" // API 金鑰（此處為空）
-    },
-    "model": {
-      "name": "checkpoint-108", // 使用的模型名稱
-      "temperature": 0, // 溫度參數（影響隨機性）
-      "top_p": 0.9, // Top-p 採樣參數
-      "max_tokens": 4096, // 最大生成長度
-      "frequency_penalty": 0,
-      "presence_penalty": 0
-    },
-    "evaluation": {
-      "dataset_path": "datasets/test/", // 評測資料集目錄
-      "api_concurrency": 40, // 並行請求數（影響推論速度）
-      "evaluation_method": "box", // 評測方式為 box 模式
-      "system_prompt": { // 系統提示詞
-        "zh": "...", // 中文提示詞
-        "en": "..."  // 英文提示詞
-      },
-      "datasets_prompt_map": {
-        "datasets/mmlu/": "en"
-      }
-    }
-  },
-  "logging": {
-    "level": "INFO" // 日誌等級
-  }
-}
-```
+---
 
-### `eval_results_{timestamp}.jsonl`
+## 排行榜
 
-這個檔案（JSONL 格式）用來**記錄單一測試檔中每一題的答題狀況**，適合：
+最新模型評測結果請參閱 [TW Eval Leaderboard](https://apps.twinkleai.tw/tw-eval-leaderboard/?lang=zh-TW)。
 
-- 分析錯題、了解模型出錯的傾向
-- 搭配資料視覺化（如 confusion matrix、錯誤率熱圖）
-
-```json
-{
-  "timestamp": "20250314_1158",  // 評測執行的時間戳記
-  "file": "datasets/test/basic_medical_science_train.csv",  // 測試檔案路徑
-  "accuracy": 0.4,  // 模型在該檔案上的整體正確率
-
-  "details": [  // 每題的評測詳情
-    {
-      "question_id": 0,  // 題目編號
-      "question": "下列何者僅位於腎臟皮質（cortex）？A: 乳頭管 ...",  // 題目內容與選項
-      "correct_answer": "C",  // 正確答案
-      "predicted_answer": "C",  // 模型預測答案
-      "is_correct": true  // 預測是否正確
-    },
-    {
-      "question_id": 1,
-      ...
-    }
-  ]
-}
-```
-
-## 模型實測結果排行榜
-
-最新模型評測結果請參閱 [TW Eval Leaderboard](https://apps.twinkleai.tw/tw-eval-leaderboard/?lang=zh-TW)，排行榜將持續更新最新評測分數。
+---
 
 ## 貢獻者
 
@@ -405,18 +336,18 @@ logging:
 
 本專案由 [Twinkle AI](https://github.com/ai-twinkle) 與 [APMIC](https://www.apmic.ai/) 合作開發。
 
+---
+
 ## 授權條款
 
-本儲存庫的原始碼依照 [MIT](https://github.com/ai-twinkle/Eval?tab=MIT-1-ov-file#readme) 授權條款開源。
+本專案以 [MIT License](https://github.com/ai-twinkle/Eval?tab=MIT-1-ov-file#readme) 授權開源。
 
 ## 引用
 
-如果您覺得此評測工具有幫助到，請再不吝引用如下：
-
 ```bibtex
 @misc{twinkle_eval,
-  author       = {Teds Lin, Liang Hsun Huang, Min Yi Chen, Dave Sung, Thomas Liang and Ren-Di Wu},
-  title        = {Twinkle Eval: An Efficient and Accurate AI Evaluation Tool.},
+  author       = {Teds Lin and Liang Hsun Huang and Min Yi Chen and Dave Sung and Thomas Liang and Ren-Di Wu},
+  title        = {Twinkle Eval: An Efficient and Accurate AI Evaluation Tool},
   year         = {2025},
   url          = {https://github.com/ai-twinkle/Eval},
   note         = {GitHub repository}
@@ -425,5 +356,4 @@ logging:
 
 ## 致謝
 
-在本專案的開發過程中，我們參考了 [iKala/ievals](https://github.com/iKala/ievals) 專案中的模式設計理念，該專案對我們的設計方向提供了寶貴的啟發，特此致上誠摯感謝。
-同時也感謝 [Simon Liu](https://simonliuyuwei-4ndgcf4.gamma.site/) 提供的 Colab [示範範例](https://colab.research.google.com/github/LiuYuWei/llm-colab-application/blob/main/Simon_LLM_Application_Twinkle_Eval_Tool_Google_Gemini_Model_Evaluation.ipynb)，協助我們更直觀地呈現工具的使用方式與實際應用場景。
+在本專案的開發過程中，我們參考了 [iKala/ievals](https://github.com/iKala/ievals) 專案的模式設計理念，該專案對設計方向提供了寶貴的啟發，特此致上誠摯感謝。
