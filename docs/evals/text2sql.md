@@ -174,7 +174,7 @@ evaluation:
 
 ### 完整 config template
 
-參見 `twinkle_eval/config.text2sql.template.yaml`
+參見 `twinkle_eval/templates/text2sql.yaml`
 
 ---
 

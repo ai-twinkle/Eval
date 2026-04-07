@@ -1,0 +1,45 @@
+llm_api:
+  base_url: "http://your-openai-compatible-server/v1"  # API 伺服器網址
+  api_key: "your-api-key"                              # API 金鑰
+  disable_ssl_verify: false                            # 是否停用 SSL 驗證
+  api_rate_limit: -1                                   # 每秒請求限制（-1 為不限制）
+  max_retries: 3                                       # API 呼叫失敗時的重試次數
+  timeout: 60                                          # 單次請求逾時（秒）
+
+model:
+  name: "model-name"      # 模型名稱
+  temperature: 0.0        # 溫度參數
+  top_p: 0.9
+  max_tokens: 4096        # CoT 推理可能產生較長回應
+  frequency_penalty: 0.0
+  presence_penalty: 0.0
+  extra_body:
+
+evaluation:
+  dataset_paths:          # 資料集目錄路徑（必填，支援多個）
+    - "datasets/example/bbh/"
+
+  # Regex Match 評測：
+  # 使用可設定的正則表達式提取完整答案字串，再做 exact string match。
+  # 適用於 BBH (BIG-Bench Hard) 等混合格式 benchmark。
+  # 預設 pattern 為 "the answer is (.*)"，匹配 BBH 標準 CoT 結尾格式。
+  evaluation_method: "regex_match"
+
+  system_prompt:
+    en: "Follow each question's instructions carefully. Think step by step. You MUST end your response with exactly this format: 'the answer is {your answer}' where {your answer} is the option like (A), (B), etc., or the exact value like Yes, No, True, False, valid, invalid, or the computed result."
+
+  # Regex Match 策略設定
+  strategy_config:
+    # 答案提取正則表達式（可為字串或列表，預設: "the answer is (.*)"）
+    # 捕捉組 1 的內容即為答案
+    # answer_pattern: "the answer is (.*)"
+
+    # 正規化模式：strip（預設）/ upper / lower / none
+    # - strip：僅去除首尾空白
+    # - upper：去除首尾空白 + 轉大寫
+    # - lower：去除首尾空白 + 轉小寫
+    # - none：不做任何正規化
+    # normalize_mode: "strip"
+
+logging:
+  level: "INFO"           # DEBUG / INFO / WARNING / ERROR

@@ -188,7 +188,11 @@ twinkle_eval/
 ├── main.py                 # TwinkleEvalRunner 主流程 + argparse 定義
 │                           # ↑ 控制器層，協調各模組
 ├── config.py               # ConfigurationManager：載入、驗證、解析 YAML
-├── config.template.yaml    # 使用者 `--init` 時產生的設定範本
+├── templates/              # 設定檔範本（`--init` 時產生）
+│   ├── multiple_choice.yaml
+│   ├── math.yaml
+│   ├── regex_match.yaml
+│   └── ...                 # 每個 evaluation method 一個範本
 │
 ├── models.py               # LLM 抽象層
 │   ├── LLM（ABC）          # → call(), validate_config()
@@ -308,7 +312,7 @@ EvaluationStrategyFactory.register_strategy("my_strategy", MyStrategy)
 
 - 在 `main.py` 的 `create_cli_parser()` 中新增 `add_argument()`
 - 在 `main()` 中加入對應的處理邏輯
-- 更新 `config.template.yaml` 中的說明（若涉及新 config 欄位）
+- 更新 `templates/*.yaml` 中的說明（若涉及新 config 欄位）
 - 更新 README 的「命令列選項」段落
 
 ---
@@ -568,7 +572,7 @@ logging:
 ### 新增欄位的規範
 
 - 所有新欄位**必須有預設值**（`config.get("field", default)`），確保舊設定檔不報錯
-- 必填的新欄位需同時更新 `validators.py` 加入驗證，並更新 `config.template.yaml`
+- 必填的新欄位需同時更新 `validators.py` 加入驗證，並更新 `templates/*.yaml`
 - 欄位名稱使用 snake_case
 
 ---
@@ -627,7 +631,10 @@ results/
 
 1. Close 該 Milestone
 2. Bump 版本號（`pyproject.toml` + `twinkle_eval/__init__.py`）
-3. 建立 Git tag 並發佈 GitHub Release（`gh release create`）
+3. 更新 `CHANGELOG.md`，記錄本次版本的變更內容（新功能、Bug fix、Breaking change 等）
+4. 建立 Git tag 並發佈 GitHub Release（`gh release create`）
+
+**CHANGELOG 規則**：每次 bump 版本號時，**必須**同步更新 `CHANGELOG.md`。未更新 CHANGELOG 的版本 bump 不得合入。
 
 **版本號遵循 [Semantic Versioning](https://semver.org/)（MAJOR.MINOR.PATCH）：**
 
@@ -653,6 +660,32 @@ results/
 - 若新功能需要 `--config`，必須在 config 缺失時給出清楚的錯誤提示
 - 多個相關選項應使用統一的前綴（如 `--benchmark-*`、`--hf-*`）
 - 回傳值：成功 `return 0`，失敗 `return 1`，使用者中斷 `return 130`
+
+### 現有 CLI 選項一覽
+
+| 選項 | 說明 |
+|------|------|
+| `--config`, `-c` | 指定設定檔路徑（預設 `config.yaml`） |
+| `--init [TEMPLATE]` | 產生設定檔範本。不帶參數列出所有可用範本，`--init <name>` 產生單一範本，`--init all` 產生全部 |
+| `--validate` | 僅驗證設定檔與資料集格式是否正確（不呼叫 API） |
+| `--dry-run` | 載入設定檔與資料集，顯示評測計畫但不呼叫 API |
+| `--resume TIMESTAMP` | 從指定時間戳記的中斷點繼續評測（跳過已完成的題目） |
+| `--export` | 輸出格式（json / csv / html / google_sheets） |
+| `--list-llms` | 列出可用的 LLM 類型 |
+| `--list-strategies` | 列出可用的評測策略 |
+| `--list-exporters` | 列出可用的輸出格式 |
+| `--benchmark` | 執行 LLM 效能基準測試 |
+| `--download-dataset` | 從 HuggingFace Hub 下載資料集 |
+
+### 設定檔範本管理
+
+所有設定檔範本集中放在 `twinkle_eval/templates/` 目錄下，以 `{evaluation_method}.yaml` 命名。新增 benchmark 時只需將範本檔放入此目錄，`--init` 會自動掃描並列出。
+
+```bash
+twinkle-eval --init                  # 列出所有可用範本
+twinkle-eval --init multiple_choice  # 產生 configs/multiple_choice.yaml
+twinkle-eval --init all              # 產生全部範本到 configs/
+```
 
 ---
 
@@ -684,7 +717,7 @@ results/
 
 ### 文件
 - [ ] PR 描述清楚說明：動機、修改內容、測試方式
-- [ ] 若新增 config 欄位，已更新 `config.template.yaml`
+- [ ] 若新增 config 欄位，已更新 `templates/*.yaml`
 - [ ] 若新增 CLI 選項，已更新 README
 
 ### 新增 Benchmark 專屬（若本 PR 新增評測方法，以下全部必須完成）

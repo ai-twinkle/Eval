@@ -52,6 +52,8 @@ from .metrics import (
     Scorer,
     Text2SQLExtractor,
     Text2SQLScorer,
+    RegexMatchExtractor,
+    StringMatchScorer,
     create_metric_pair,
     get_available_methods,
 )
@@ -92,6 +94,8 @@ __all__ = [
     "MathRulerScorer",
     "Text2SQLExtractor",
     "Text2SQLScorer",
+    "RegexMatchExtractor",
+    "StringMatchScorer",
     "create_metric_pair",
     "get_available_methods",
     # 向下相容別名（舊名稱）

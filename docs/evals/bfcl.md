@@ -99,4 +99,4 @@ evaluation:
 
 ### 完整 config template
 
-參見 `twinkle_eval/config.bfcl.template.yaml`
+參見 `twinkle_eval/templates/bfcl.yaml`

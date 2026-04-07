@@ -158,7 +158,7 @@ RAGAS 資料集的 `question` 欄位需為預組裝的 judge prompt，包含：
 
 ### 完整 config template
 
-參見 `twinkle_eval/config.ragas.template.yaml`
+參見 `twinkle_eval/templates/ragas.yaml`
 
 ---
 

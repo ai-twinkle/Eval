@@ -142,4 +142,4 @@ evaluation:
 
 ### 完整 config template
 
-參見 `twinkle_eval/config.multiple_choice.template.yaml`
+參見 `twinkle_eval/templates/multiple_choice.yaml`

@@ -121,7 +121,7 @@ packages = [
 ]
 
 [tool.setuptools.package-data]
-twinkle_eval = ["*.yaml", "*.yml", "config.template.yaml", "config.multiple_choice.template.yaml", "config.math.template.yaml", "config.bfcl.template.yaml", "config.ifeval.template.yaml", "config.ifbench.template.yaml", "config.text2sql.template.yaml"]
+twinkle_eval = ["*.yaml", "*.yml", "templates/*.yaml"]
 
 [tool.black]
 line-length = 100

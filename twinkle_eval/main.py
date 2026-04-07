@@ -57,10 +57,43 @@ def convert_json_to_html(json_file_path: str) -> int:
         return 1
 
 
-def create_default_config(output_dir: str = "configs") -> int:
-    """在指定目錄下建立兩份預設配置範本：選擇題與數學評測。
+def get_available_templates() -> list[str]:
+    """掃描 templates/ 目錄，回傳所有可用的 template 名稱（不含副檔名）。
+
+    Returns:
+        list[str]: 可用的 template 名稱列表，依字母排序
+    """
+    import glob
+
+    templates_dir = os.path.join(os.path.dirname(__file__), "templates")
+    files = glob.glob(os.path.join(templates_dir, "*.yaml"))
+    return sorted(os.path.splitext(os.path.basename(f))[0] for f in files)
+
+
+def list_templates() -> int:
+    """列出所有可用的設定檔範本。
+
+    Returns:
+        int: 程式退出代碼（0 表示成功）
+    """
+    available = get_available_templates()
+    print("📋 可用的設定檔範本：")
+    print()
+    for name in available:
+        print(f"  - {name}")
+    print()
+    print("💡 使用方式：")
+    print("  twinkle-eval --init <name>    # 產生單一範本")
+    print("  twinkle-eval --init all       # 產生全部範本")
+    return 0
+
+
+def create_default_config(template_name: str | None = None, output_dir: str = "configs") -> int:
+    """在指定目錄下建立設定檔範本。
 
     Args:
+        template_name: 要產生的範本名稱。None 或 "list" 列出所有可用範本，
+                       "all" 產生全部，其他則產生指定的單一範本。
         output_dir: 輸出目錄，預設為 configs/
 
     Returns:
@@ -68,26 +101,36 @@ def create_default_config(output_dir: str = "configs") -> int:
     """
     import shutil
 
-    templates = [
-        ("config.multiple_choice.template.yaml", "multiple_choice.yaml"),
-        ("config.math.template.yaml",             "math.yaml"),
-        ("config.bfcl.template.yaml",             "bfcl.yaml"),
-        ("config.niah.template.yaml",             "niah.yaml"),
-        ("config.ragas.template.yaml",            "ragas.yaml"),
-        ("config.text2sql.template.yaml",         "text2sql.yaml"),
-    ]
-    pkg_dir = os.path.dirname(__file__)
+    # 列出可用範本
+    if template_name is None:
+        return list_templates()
+
+    available = get_available_templates()
+
+    # 決定要產生哪些範本
+    if template_name == "all":
+        names = available
+    elif template_name in available:
+        names = [template_name]
+    else:
+        print(f"❌ 找不到範本：{template_name}")
+        print()
+        print("可用的範本：")
+        for name in available:
+            print(f"  - {name}")
+        return 1
+
+    templates_dir = os.path.join(os.path.dirname(__file__), "templates")
 
     try:
-        # 建立目錄（已存在則不報錯）
         os.makedirs(output_dir, exist_ok=True)
 
         created: list[str] = []
         skipped: list[str] = []
 
-        for template_name, output_name in templates:
-            template_path = os.path.join(pkg_dir, template_name)
-            output_path   = os.path.join(output_dir, output_name)
+        for name in names:
+            template_path = os.path.join(templates_dir, f"{name}.yaml")
+            output_path = os.path.join(output_dir, f"{name}.yaml")
 
             if not os.path.exists(template_path):
                 print(f"❌ 找不到範本檔案: {template_path}")
@@ -248,7 +291,12 @@ class TwinkleEvalRunner:
         return settings
 
     def _evaluate_dataset(
-        self, dataset_path: str, evaluator: Evaluator, repeat_runs: int, pass_k: int
+        self,
+        dataset_path: str,
+        evaluator: Evaluator,
+        repeat_runs: int,
+        pass_k: int,
+        completed_records: Optional[Dict[str, set]] = None,
     ) -> Dict[str, Any]:
         """評測單一資料集
 
@@ -259,6 +307,7 @@ class TwinkleEvalRunner:
             evaluator: 評測器實例
             repeat_runs: 重複執行次數
             pass_k: pass@k 的 k 值
+            completed_records: resume 模式下已完成的紀錄
 
         Returns:
             Dict[str, Any]: 資料集評測結果，包含準確率統計和詳細結果
@@ -283,6 +332,20 @@ class TwinkleEvalRunner:
             file_unparsed_counts: List[int] = []
             file_total_counts: List[int] = []
             for run in range(repeat_runs):
+                # --resume：跳過已有完整結果的 run
+                if completed_records is not None:
+                    run_key = f"eval_results_{self.start_time}_run{run}.jsonl"
+                    if run_key in completed_records:
+                        from .datasets.file import Dataset as _Dataset
+                        ds_len = len(_Dataset(file_path))
+                        completed_for_file = sum(
+                            1 for rec in completed_records[run_key]
+                            if rec.startswith(f"{file_path}|")
+                        )
+                        if completed_for_file >= ds_len:
+                            log_info(f"⏭️  跳過已完成的檔案：{file_path} (run {run})")
+                            continue
+
                 try:
                     file_path_result, metrics, result_path = evaluator.evaluate_file(
                         file_path, f"{self.start_time}_run{run}", dataset_lang
@@ -353,7 +416,11 @@ class TwinkleEvalRunner:
             "average_unparsed_rate": round(dataset_avg_unparsed_rate, 4),
         }
 
-    def run_evaluation(self, export_formats: Optional[List[str]] = None) -> str:
+    def run_evaluation(
+        self,
+        export_formats: Optional[List[str]] = None,
+        completed_records: Optional[Dict[str, set]] = None,
+    ) -> str:
         """執行完整的評測流程
 
         這是主要的評測入口點，包含以下步驟：
@@ -363,6 +430,8 @@ class TwinkleEvalRunner:
 
         Args:
             export_formats: 輸出格式清單，預設為 ["json"]
+            completed_records: resume 模式下已完成的紀錄，key 為 run 檔名，
+                               value 為 "file|question_id" 的集合
 
         Returns:
             str: 主要結果檔案路徑
@@ -411,6 +480,7 @@ class TwinkleEvalRunner:
                     dataset_path, evaluator,
                     repeat_runs=ds["repeat_runs"],
                     pass_k=ds["pass_k"],
+                    completed_records=completed_records,
                 )
                 if not dataset_result.get("results"):
                     log_error(f"資料集 {dataset_path} 評測完成但無有效結果，跳過")
@@ -539,6 +609,18 @@ def create_cli_parser() -> argparse.ArgumentParser:
   twinkle-eval --list-llms             # 列出可用的 LLM 類型
   twinkle-eval --list-strategies       # 列出可用的評測策略
 
+設定檔範本:
+  twinkle-eval --init                  # 列出所有可用範本
+  twinkle-eval --init multiple_choice  # 產生選擇題範本
+  twinkle-eval --init all              # 產生全部範本
+
+驗證與預覽:
+  twinkle-eval --validate              # 驗證設定檔與資料集格式
+  twinkle-eval --dry-run               # 預覽評測計畫（不呼叫 API）
+
+接續中斷的評測:
+  twinkle-eval --resume 20250401_1200  # 從指定時間戳記的中斷點繼續
+
 結果格式轉換:
   twinkle-eval --convert-to-html results_20240101_1200.json  # 將 JSON 結果轉換為 HTML
 
@@ -575,7 +657,32 @@ HuggingFace 資料集下載:
 
     parser.add_argument("--version", action="store_true", help="顯示版本資訊")
 
-    parser.add_argument("--init", action="store_true", help="在 configs/ 目錄下建立選擇題與數學評測的預設設定檔範本")
+    parser.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="載入設定檔與資料集，顯示評測計畫但不呼叫 API",
+    )
+
+    parser.add_argument(
+        "--validate",
+        action="store_true",
+        help="僅驗證設定檔格式與資料集格式是否正確",
+    )
+
+    parser.add_argument(
+        "--resume",
+        metavar="TIMESTAMP",
+        help="從指定時間戳記的中斷點繼續評測（跳過已有結果的題目）",
+    )
+
+    parser.add_argument(
+        "--init",
+        nargs="?",
+        const=None,
+        default=False,
+        metavar="TEMPLATE",
+        help="產生設定檔範本到 configs/ 目錄。不帶參數列出所有可用範本，指定名稱產生單一範本，'all' 產生全部",
+    )
 
     # HuggingFace 資料集下載相關命令
     parser.add_argument(
@@ -747,6 +854,193 @@ HuggingFace 資料集下載:
     return parser
 
 
+def _handle_validate(config_path: str) -> int:
+    """處理 --validate：僅驗證設定檔與資料集格式。
+
+    Args:
+        config_path: 設定檔路徑
+
+    Returns:
+        int: 程式退出代碼（0 表示成功，1 表示失敗）
+    """
+    from .core.validators import ConfigValidator, DatasetValidator
+
+    errors: list[str] = []
+
+    # 1. 驗證設定檔存在與 YAML 語法
+    try:
+        ConfigValidator.validate_config_file(config_path)
+        print(f"✅ 設定檔存在且可讀取：{config_path}")
+    except Exception as e:
+        print(f"❌ 設定檔錯誤：{e}")
+        return 1
+
+    try:
+        ConfigValidator.validate_yaml_syntax(config_path)
+        print("✅ YAML 語法正確")
+    except Exception as e:
+        print(f"❌ YAML 語法錯誤：{e}")
+        return 1
+
+    # 2. 驗證設定檔結構
+    import yaml
+
+    with open(config_path, "r", encoding="utf-8") as f:
+        config = yaml.safe_load(f)
+
+    try:
+        ConfigValidator.validate_config_structure(config)
+        print("✅ 設定檔結構正確")
+    except Exception as e:
+        errors.append(f"設定檔結構：{e}")
+
+    # 3. 驗證資料集路徑與檔案
+    eval_cfg = config.get("evaluation", {})
+    dataset_paths = eval_cfg.get("dataset_paths", [])
+    if isinstance(dataset_paths, str):
+        dataset_paths = [dataset_paths]
+
+    for ds_path in dataset_paths:
+        try:
+            DatasetValidator.validate_dataset_path(ds_path)
+            files = DatasetValidator.validate_dataset_files(ds_path)
+            print(f"✅ 資料集 {ds_path}：找到 {len(files)} 個檔案")
+        except Exception as e:
+            errors.append(f"資料集 {ds_path}：{e}")
+
+    # 4. 結果
+    if errors:
+        print()
+        for err in errors:
+            print(f"❌ {err}")
+        return 1
+
+    print()
+    print("✅ 驗證全部通過")
+    return 0
+
+
+def _handle_dry_run(config_path: str) -> int:
+    """處理 --dry-run：載入設定檔與資料集，顯示評測計畫但不呼叫 API。
+
+    Args:
+        config_path: 設定檔路徑
+
+    Returns:
+        int: 程式退出代碼（0 表示成功，1 表示失敗）
+    """
+    from .datasets.file import Dataset
+
+    try:
+        config = load_config(config_path)
+    except Exception as e:
+        print(f"❌ 載入設定檔失敗：{e}")
+        return 1
+
+    model_name = config.get("model", {}).get("name", "未指定")
+    eval_cfg = config.get("evaluation", {})
+    eval_method = eval_cfg.get("evaluation_method", "未指定")
+    repeat_runs = eval_cfg.get("repeat_runs", 1)
+    shuffle = eval_cfg.get("shuffle_options", False)
+
+    dataset_paths = eval_cfg.get("dataset_paths", [])
+    if isinstance(dataset_paths, str):
+        dataset_paths = [dataset_paths]
+
+    print("📋 評測計畫預覽（Dry Run）")
+    print("=" * 60)
+    print(f"  模型：{model_name}")
+    print(f"  評測方法：{eval_method}")
+    print(f"  重複次數：{repeat_runs}")
+    print(f"  選項隨機排列：{'是' if shuffle else '否'}")
+    print()
+
+    total_questions = 0
+    total_files = 0
+
+    for ds_path in dataset_paths:
+        print(f"📁 資料集：{ds_path}")
+        try:
+            files = find_all_evaluation_files(ds_path)
+            for file_path in files:
+                ds = Dataset(file_path)
+                count = len(ds)
+                total_questions += count
+                total_files += 1
+                print(f"   📄 {os.path.basename(file_path)}：{count} 題")
+        except Exception as e:
+            print(f"   ❌ 無法讀取：{e}")
+
+    print()
+    print("-" * 60)
+    print(f"  資料集檔案數：{total_files}")
+    print(f"  總題數：{total_questions}")
+    print(f"  總 API 呼叫數：{total_questions * repeat_runs}")
+    print()
+    print("💡 確認無誤後，移除 --dry-run 即可開始評測")
+    return 0
+
+
+def _handle_resume(config_path: str, timestamp: str, export_formats: list[str]) -> int:
+    """處理 --resume：從指定時間戳記的中斷點繼續評測。
+
+    讀取既有的 JSONL 結果檔，找出已完成的題目，跳過這些題目繼續評測。
+
+    Args:
+        config_path: 設定檔路徑
+        timestamp: 中斷時的時間戳記（如 20250401_1200）
+        export_formats: 輸出格式列表
+
+    Returns:
+        int: 程式退出代碼（0 表示成功，1 表示失敗）
+    """
+    import glob
+    import json
+
+    # 1. 找出既有的 JSONL 結果檔
+    pattern = os.path.join("results", f"eval_results_{timestamp}_run*.jsonl")
+    existing_files = sorted(glob.glob(pattern))
+
+    if not existing_files:
+        print(f"❌ 找不到時間戳記 {timestamp} 的結果檔案")
+        print(f"   搜尋路徑：{pattern}")
+        return 1
+
+    # 2. 解析已完成的題目（per run）
+    completed: dict[str, set[str]] = {}  # run_file -> set of (file|question_id)
+    for result_file in existing_files:
+        run_key = os.path.basename(result_file)
+        completed[run_key] = set()
+        try:
+            with open(result_file, "r", encoding="utf-8") as f:
+                for line in f:
+                    line = line.strip()
+                    if not line:
+                        continue
+                    record = json.loads(line)
+                    file_id = record.get("file", "")
+                    q_id = str(record.get("question_id", ""))
+                    completed[run_key].add(f"{file_id}|{q_id}")
+        except Exception as e:
+            print(f"⚠️  讀取 {result_file} 時發生錯誤：{e}")
+
+    total_completed = sum(len(v) for v in completed.values())
+    print(f"📋 找到 {len(existing_files)} 個結果檔案，共 {total_completed} 筆已完成紀錄")
+
+    # 3. 正常載入 config 並執行評測，帶入 resume 資訊
+    try:
+        runner = TwinkleEvalRunner(config_path)
+        runner.initialize()
+        # 覆蓋時間戳記為原始的，確保結果寫入同一組檔案
+        runner.start_time = timestamp
+        runner.run_evaluation(export_formats, completed_records=completed)
+    except Exception as e:
+        log_error(f"Resume 執行失敗: {e}")
+        return 1
+
+    return 0
+
+
 def main() -> int:
     """主程式入口點
 
@@ -791,8 +1085,8 @@ def main() -> int:
         print(f"網址: {info['url']}")
         return 0
 
-    if args.init:
-        return create_default_config()
+    if args.init is not False:
+        return create_default_config(template_name=args.init)
 
     # HuggingFace 資料集相關命令
     if args.download_dataset:
@@ -934,6 +1228,18 @@ def main() -> int:
             print(f"❌ 基準測試失敗: {e}")
             log_error(f"基準測試執行錯誤: {e}")
             return 1
+
+    # --validate：僅驗證設定檔與資料集格式
+    if args.validate:
+        return _handle_validate(args.config)
+
+    # --dry-run：載入設定檔與資料集，顯示評測計畫但不呼叫 API
+    if args.dry_run:
+        return _handle_dry_run(args.config)
+
+    # --resume：從指定時間戳記的中斷點繼續評測
+    if args.resume:
+        return _handle_resume(args.config, args.resume, args.export)
 
     # 執行評測
     try:

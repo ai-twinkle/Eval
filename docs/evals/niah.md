@@ -161,7 +161,7 @@ evaluation:
 
 ### 完整 config template
 
-參見 `twinkle_eval/config.niah.template.yaml`
+參見 `twinkle_eval/templates/niah.yaml`
 
 ---
 

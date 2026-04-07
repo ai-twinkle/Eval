@@ -60,6 +60,12 @@
 | `bird/` | [BIRD](https://bird-bench.github.io/) | 10 | `text2sql` | 含外部知識的 Text-to-SQL（california_schools、financial 兩個 SQLite DB） |
 | `spider2_lite/` | [Spider 2.0-lite](https://spider2-sql.github.io/) | 10 | `text2sql` | 企業級 Text-to-SQL 的 SQLite 子集（book_store DB）。僅支援 lite 版（85 題 SQLite-only），完整版需 BigQuery/Snowflake 雲端帳號 |
 
+### Regex Match（BBH 等混合格式）
+
+| 目錄 | 來源 | 題數 | 評測方法 | 說明 |
+|------|------|------|----------|------|
+| `bbh/` | [BIG-Bench-Hard](https://github.com/suzgunmirac/BIG-Bench-Hard) | 15 | `regex_match` | BBH 27 子任務取樣 — MC `(A)`/`(B)` + Binary `Yes`/`No` + Free-form（數字、字串序列） |
+
 ## 快速開始
 
 ### 選擇題（box 模式）
@@ -145,6 +151,17 @@ evaluation:
     text2sql_db_base_path: "datasets/example/spider/databases"
 ```
 
+### Regex Match（regex_match 模式，BBH）
+
+```yaml
+evaluation:
+  dataset_paths:
+    - "datasets/example/bbh/"
+  evaluation_method: regex_match
+  system_prompt:
+    en: "Follow each question's instructions carefully. Think step by step. You MUST end your response with exactly this format: 'the answer is {your answer}' where {your answer} is the option like (A), (B), etc., or the exact value like Yes, No, True, False, valid, invalid, or the computed result."
+```
+
 ### 混合模式（dataset_overrides）
 
 ```yaml
@@ -199,6 +216,12 @@ evaluation:
 ```json
 {"question": "<schema + question prompt>", "answer": "{\"sql\": \"SELECT ...\", \"db_id\": \"...\"}",  "db_id": "..."}
 ```
+
+**Regex Match / BBH（bbh）**
+```json
+{"id": "bbh_task_0", "question": "...", "answer": "(B)", "subtask": "disambiguation_qa"}
+```
+`answer` 可為選項 `(A)`/`(B)`、布林值 `Yes`/`No`/`True`/`False`、數字 `24`、或字串序列 `barn damp dot`。
 
 ## 重新生成
 

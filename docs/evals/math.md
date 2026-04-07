@@ -104,4 +104,4 @@ evaluation:
 
 ### 完整 config template
 
-參見 `twinkle_eval/config.math.template.yaml`
+參見 `twinkle_eval/templates/math.yaml`

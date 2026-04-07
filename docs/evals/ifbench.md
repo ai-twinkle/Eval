@@ -168,7 +168,7 @@ logging:
 
 ### 完整 config template
 
-參見 `twinkle_eval/config.ifbench.template.yaml`
+參見 `twinkle_eval/templates/ifbench.yaml`
 
 ---
 
