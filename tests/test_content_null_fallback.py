@@ -2,17 +2,21 @@
 tests/test_content_null_fallback.py
 
 當 LLM 回應的 message.content 為 null 時（例如 ACE-1 模型在
-skip_special_tokens=true 情況下），evaluators.py 必須 fallback 至
-reasoning_content 進行答案提取，而非讓 extract_answer(None) 永遠回傳 None。
+skip_special_tokens=true 情況下），evaluator.py 必須優先使用
+reasoning，若其為 None 再 fallback 至 reasoning_content 進行答案提取，
+而非讓 extract_answer(None) 永遠回傳 None。
 
 已知觸發情境：
   ACE-1 / Ace1-24B-NVFP4 透過 vLLM + LiteLLM，skip_special_tokens=true（預設）時：
   - message.content = null
-  - message.reasoning_content = "推理過程...\n\nB"（答案在尾端）
+  - vLLM < 0.13：message.reasoning_content = "推理過程...\n\nB"
+  - vLLM 0.13.x：message.reasoning / message.reasoning_content 同時存在，但只有其中一個有值
+  - vLLM >= 0.18：message.reasoning = "推理過程...\n\nB"
 
 防禦情境：
-  content 與 reasoning_content 皆為 null 時，不得 raise 未預期的 AttributeError
-  或 TypeError，應記錄 log_error 並將 predicted_answer 標記為 None（計為答錯）。
+  content、reasoning、reasoning_content 皆為 null 時，不得 raise 未預期的
+  AttributeError 或 TypeError，應記錄 log_error 並將 predicted_answer
+  標記為 None（計為答錯）。
 """
 
 from types import SimpleNamespace
@@ -25,12 +29,13 @@ import pytest
 # Helpers
 # ---------------------------------------------------------------------------
 
-def _make_completion(content, reasoning_content):
-    """建立假的 ChatCompletion，content / reasoning_content 可獨立設定"""
-    message = SimpleNamespace(
-        content=content,
-        reasoning_content=reasoning_content,
-    )
+def _make_completion(content, reasoning_content=None, reasoning=None):
+    """建立假的 ChatCompletion，content / reasoning_content / reasoning 可獨立設定"""
+    message = SimpleNamespace(content=content)
+    if reasoning_content is not None:
+        message.reasoning_content = reasoning_content
+    if reasoning is not None:
+        message.reasoning = reasoning
     usage = SimpleNamespace(
         completion_tokens=10,
         prompt_tokens=50,
@@ -62,7 +67,7 @@ def _make_evaluator():
 # ---------------------------------------------------------------------------
 
 class TestContentNullFallback:
-    """content=null 時應 fallback 至 reasoning_content"""
+    """content=null 時應優先使用 reasoning，否則回退 reasoning_content"""
 
     def _run_single_question(self, evaluator, completion, tmp_path):
         """讓 evaluator 處理單題，回傳 predicted_answer"""
@@ -126,6 +131,41 @@ class TestContentNullFallback:
         )
         assert is_correct is True
 
+    def test_content_null_falls_back_to_reasoning(self, tmp_path):
+        """新版欄位：content=null 時應優先使用 reasoning"""
+        evaluator = _make_evaluator()
+        completion = _make_completion(
+            content=None,
+            reasoning="根據台灣現行法律，台北市是首都。\n答案：B",
+        )
+        predicted, is_correct = self._run_single_question(evaluator, completion, tmp_path)
+        assert predicted == "B"
+        assert is_correct is True
+
+    def test_content_null_uses_reasoning_when_both_fields_exist_but_old_is_none(self, tmp_path):
+        """vLLM 0.13.x：兩個屬性都存在，但只有 reasoning 有值時應成功提取"""
+        evaluator = _make_evaluator()
+        completion = _make_completion(
+            content=None,
+            reasoning="答案：B",
+            reasoning_content=None,
+        )
+        predicted, is_correct = self._run_single_question(evaluator, completion, tmp_path)
+        assert predicted == "B"
+        assert is_correct is True
+
+    def test_reasoning_empty_string_does_not_fallback_to_reasoning_content(self, tmp_path):
+        """新版欄位若是空字串，不應被 `or` 誤判後退回舊欄位"""
+        evaluator = _make_evaluator()
+        completion = _make_completion(
+            content=None,
+            reasoning="",
+            reasoning_content="答案：B",
+        )
+        predicted, is_correct = self._run_single_question(evaluator, completion, tmp_path)
+        assert predicted is None
+        assert is_correct is False
+
     def test_content_empty_string_falls_back(self, tmp_path):
         """content 為空字串時也應 fallback"""
         evaluator = _make_evaluator()
@@ -139,7 +179,7 @@ class TestContentNullFallback:
 
     def test_both_null_does_not_raise(self, tmp_path):
         """
-        防禦情境：content 與 reasoning_content 皆為 null →
+        防禦情境：content、reasoning、reasoning_content 皆為 null →
         不得 raise AttributeError / TypeError，
         predicted_answer 應為 None（計為答錯）
         """
@@ -152,7 +192,7 @@ class TestContentNullFallback:
         assert is_correct is False
 
     def test_both_null_no_crash_accuracy_zero(self, tmp_path):
-        """content 與 reasoning_content 皆為 null 時，accuracy 應為 0.0，不是 exception"""
+        """content、reasoning、reasoning_content 皆為 null 時，accuracy 應為 0.0，不是 exception"""
         import os, json
         from unittest.mock import patch
 

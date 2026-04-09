@@ -42,6 +42,14 @@ def _strip_think_blocks(text: str) -> str:
     return text
 
 
+def _get_reasoning_text(message: Any) -> Optional[str]:
+    """優先讀取新版 reasoning，只有為 None 時才回退舊版 reasoning_content。"""
+    reasoning = getattr(message, "reasoning", None)
+    if reasoning is None:
+        reasoning = getattr(message, "reasoning_content", None)
+    return reasoning
+
+
 class RateLimiter:
     def __init__(self, calls_per_second: float) -> None:
         self.no_limit = calls_per_second == -1
@@ -341,7 +349,7 @@ class Evaluator:
                     ):
                         message = choice.message
                         content = message.content
-                        reasoning_content = getattr(message, "reasoning_content", None)
+                        reasoning_content = _get_reasoning_text(message)
                         if content:
                             content = _strip_think_blocks(content)
                         extraction_source = content if content else reasoning_content
@@ -434,7 +442,7 @@ class Evaluator:
 
                     message = llm_chat_completion.choices[0].message
                     content = message.content
-                    reasoning_content = getattr(message, "reasoning_content", None)
+                    reasoning_content = _get_reasoning_text(message)
                     if content:
                         content = _strip_think_blocks(content)
                     response = content if content else (reasoning_content or "")
@@ -689,20 +697,20 @@ class Evaluator:
                     ):
                         message = choice.message
                         content = message.content
-                        reasoning_content = getattr(message, "reasoning_content", None)
+                        reasoning_content = _get_reasoning_text(message)
 
                         # 統一推理輸出解析：
                         # A. inline think tag（如 Ollama）：content 含 <think>...</think>
                         #    → 剝離 think block，只留結尾的答案部分
                         # B. content=null（如 vLLM skip_special_tokens=true）：
-                        #    → fallback 至 reasoning_content
+                        #    → 優先使用 reasoning，若為 None 再回退 reasoning_content
                         if content:
                             content = _strip_think_blocks(content)
 
                         extraction_source = content if content else reasoning_content
                         if extraction_source is None:
                             log_error(
-                                f"問題 {question_id} 的 content 與 reasoning_content 均為 null，無法提取答案"
+                                f"問題 {question_id} 的 content、reasoning、reasoning_content 均為 null，無法提取答案"
                             )
 
                         predicted_raw = self.extractor.extract(extraction_source)
