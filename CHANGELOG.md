@@ -5,6 +5,14 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.7.1] - 2026-04-09
+
+### Fixed
+- **vLLM 0.18+ reasoning 欄位相容性**（PR #127）：vLLM 0.18+ 將 `reasoning_content` 改名為 `reasoning`，新增 `_get_reasoning_text()` helper 優先讀取 `reasoning`，`None` 時才回退 `reasoning_content`，相容 vLLM <0.13 / 0.13.x / >=0.18 三種版本
+
+### Changed
+- CLAUDE.md 新增 bug fix 必須立即推 PATCH 版號的規範
+
 ## [2.7.0] - 2026-04-08
 
 ### Added

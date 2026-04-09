@@ -627,12 +627,17 @@ results/
 
 ### Release 與 Tag 規範
 
-**當一個 GitHub Milestone 的所有 Issue 都已 close 時，必須：**
+**以下兩種情況必須推版號：**
 
-1. Close 該 Milestone
-2. Bump 版本號（`pyproject.toml` + `twinkle_eval/__init__.py`）
-3. 更新 `CHANGELOG.md`，記錄本次版本的變更內容（新功能、Bug fix、Breaking change 等）
-4. 建立 Git tag 並發佈 GitHub Release（`gh release create`）
+1. **Milestone 完成**：當一個 GitHub Milestone 的所有 Issue 都已 close 時，bump MINOR 版號
+2. **Bug fix 合入**：當 bug fix PR 合入 main 時，必須立即 bump PATCH 版號（第三碼）
+
+**推版號時，必須完成以下所有步驟：**
+
+1. Bump 版本號（`pyproject.toml` + `twinkle_eval/__init__.py`，兩者必須同步）
+2. 更新 `CHANGELOG.md`，記錄本次版本的變更內容（新功能、Bug fix、Breaking change 等）
+3. 建立 Git tag 並發佈 GitHub Release（`gh release create`）
+4. 若為 Milestone 完成，同時 close 該 Milestone
 
 **CHANGELOG 規則**：每次 bump 版本號時，**必須**同步更新 `CHANGELOG.md`。未更新 CHANGELOG 的版本 bump 不得合入。
 
@@ -644,10 +649,13 @@ results/
 | **MINOR** | `x.Y.0` | 新功能：新增 benchmark、新增 evaluation method、新增 exporter、新增 optional dependency group | 2.0.0 → 2.1.0（新增 IFEval + IFBench） |
 | **PATCH** | `x.y.Z` | Bug fix、文件修正、效能優化、不影響使用者介面的內部重構 | 2.1.0 → 2.1.1（修正 scorer 邊界條件） |
 
+**Bug fix 的版號更新不得延遲**：bug fix PR 合入後，必須在同一次工作流程中完成 PATCH 版號 bump、CHANGELOG 更新、Git tag 與 GitHub Release。不得等到下一個 Milestone 才一起推。
+
 **多個 Milestone 同時完成時**（例如同一個 PR 關閉了多個 Milestone），只需 bump 一次版本、發佈一個 Release，Release notes 中列出所有完成的 Milestone。
 
 **Release 標題格式**：`v{VERSION} — {一句話摘要}`
 - 範例：`v2.1.0 — IFEval & IFBench Instruction-Following Evaluation`
+- 範例：`v2.7.1 — Fix vLLM 0.18+ reasoning field compatibility`
 
 **Tag 命名**：`v{VERSION}`（例如 `v2.1.0`），必須指向 main branch 上 version bump commit。
 
