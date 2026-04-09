@@ -5,19 +5,22 @@ tests/test_reasoning_extraction.py
 
 情境 A（vLLM skip_special_tokens=true）：
   - content = null
-  - reasoning_content = "推理過程...\n答案：B"
-  → fallback 至 reasoning_content（PR #23 已處理，此處做回歸確認）
+  - vLLM < 0.13：只有 reasoning_content = "推理過程...\n答案：B"
+  - vLLM 0.13.x：reasoning 與 reasoning_content 同時存在，但只有其中一個有值
+  - vLLM >= 0.18：只有 reasoning = "推理過程...\n答案：B"
+  → 優先使用 reasoning，否則 fallback 至 reasoning_content
 
 情境 B（Ollama / inline think tag）：
   - content = "<think>推理過程...</think>答案：B"
+  - reasoning = None
   - reasoning_content = None
   → 自動剝離 think block，從剩餘 content 提取答案
 
 其他邊界案例：
   - 開頭 tag 被截斷（只有 </think>）
   - 多種 end tag（</think>、</reason>、</reasoning>）
-  - strip 後 content 為空 → fallback reasoning_content
-  - 兩者皆 null → 不 crash，predicted=None
+  - strip 後 content 為空 → 優先 reasoning，否則 fallback reasoning_content
+  - 三者皆 null → 不 crash，predicted=None
 """
 
 import json
@@ -32,8 +35,12 @@ import pytest
 # Helpers
 # ---------------------------------------------------------------------------
 
-def _make_completion(content, reasoning_content=None):
-    message = SimpleNamespace(content=content, reasoning_content=reasoning_content)
+def _make_completion(content, reasoning_content=None, reasoning=None):
+    message = SimpleNamespace(content=content)
+    if reasoning_content is not None:
+        message.reasoning_content = reasoning_content
+    if reasoning is not None:
+        message.reasoning = reasoning
     usage = SimpleNamespace(completion_tokens=10, prompt_tokens=50, total_tokens=60)
     return SimpleNamespace(choices=[SimpleNamespace(message=message)], usage=usage)
 
@@ -81,7 +88,7 @@ def _run_single(evaluator, completion, tmp_path):
 
 
 # ---------------------------------------------------------------------------
-# 情境 A：content=null（PR #23 回歸）
+# 情境 A：content=null（新版 reasoning / 舊版 reasoning_content 相容）
 # ---------------------------------------------------------------------------
 
 class TestContentNullFallback:
@@ -99,6 +106,35 @@ class TestContentNullFallback:
         predicted, is_correct = _run_single(evaluator, completion, tmp_path)
         assert predicted == "B"
         assert is_correct is True
+
+    def test_null_content_uses_reasoning(self, tmp_path):
+        evaluator = _make_evaluator()
+        completion = _make_completion(None, reasoning="推理...\n答案：B")
+        predicted, is_correct = _run_single(evaluator, completion, tmp_path)
+        assert predicted == "B"
+        assert is_correct is True
+
+    def test_null_content_uses_reasoning_when_both_fields_exist_but_old_is_none(self, tmp_path):
+        evaluator = _make_evaluator()
+        completion = _make_completion(
+            None,
+            reasoning="推理...\n答案：B",
+            reasoning_content=None,
+        )
+        predicted, is_correct = _run_single(evaluator, completion, tmp_path)
+        assert predicted == "B"
+        assert is_correct is True
+
+    def test_empty_reasoning_does_not_fallback_to_reasoning_content(self, tmp_path):
+        evaluator = _make_evaluator()
+        completion = _make_completion(
+            None,
+            reasoning="",
+            reasoning_content="推理...\n答案：B",
+        )
+        predicted, is_correct = _run_single(evaluator, completion, tmp_path)
+        assert predicted is None
+        assert is_correct is False
 
 
 # ---------------------------------------------------------------------------
@@ -156,21 +192,47 @@ class TestInlineThinkTag:
         assert predicted == "B"
         assert is_correct is True
 
-    def test_think_tag_only_fallback_to_reasoning_content(self, tmp_path):
-        """think block 佔滿整個 content，剝離後為空 → fallback reasoning_content"""
+    def test_think_tag_only_uses_reasoning(self, tmp_path):
+        """think block 佔滿整個 content，剝離後為空 → 應優先使用 reasoning"""
         evaluator = _make_evaluator()
         completion = _make_completion(
             content="<think>推理...</think>",
+            reasoning="答案：B",
+        )
+        predicted, is_correct = _run_single(evaluator, completion, tmp_path)
+        assert predicted == "B", f"剝離後 content 為空應優先使用 reasoning，got: {predicted}"
+        assert is_correct is True
+
+    def test_think_tag_only_uses_reasoning_when_both_fields_exist_but_old_is_none(self, tmp_path):
+        """vLLM 0.13.x：think block 剝空後，兩個屬性都存在但只有 reasoning 有值"""
+        evaluator = _make_evaluator()
+        completion = _make_completion(
+            content="<think>推理...</think>",
+            reasoning="答案：B",
+            reasoning_content=None,
+        )
+        predicted, is_correct = _run_single(evaluator, completion, tmp_path)
+        assert predicted == "B"
+        assert is_correct is True
+
+    def test_think_tag_only_fallback_to_reasoning_content(self, tmp_path):
+        """think block 佔滿整個 content，剝離後為空且 reasoning=None → fallback reasoning_content"""
+        evaluator = _make_evaluator()
+        completion = _make_completion(
+            content="<think>推理...</think>",
+            reasoning=None,
             reasoning_content="答案：B",
         )
         predicted, is_correct = _run_single(evaluator, completion, tmp_path)
         assert predicted == "B", f"剝離後 content 為空應 fallback，got: {predicted}"
+        assert is_correct is True
 
     def test_think_tag_only_no_reasoning_content_returns_none(self, tmp_path):
-        """think block 佔滿 content 且 reasoning_content=None → predicted=None，不 crash"""
+        """think block 佔滿 content 且 reasoning/reasoning_content 都沒有 → predicted=None，不 crash"""
         evaluator = _make_evaluator()
         completion = _make_completion(
             content="<think>推理...</think>",
+            reasoning=None,
             reasoning_content=None,
         )
         predicted, is_correct = _run_single(evaluator, completion, tmp_path)
@@ -179,7 +241,7 @@ class TestInlineThinkTag:
 
 
 # ---------------------------------------------------------------------------
-# 防禦：兩者皆 null
+# 防禦：三者皆 null
 # ---------------------------------------------------------------------------
 
 class TestBothNull:

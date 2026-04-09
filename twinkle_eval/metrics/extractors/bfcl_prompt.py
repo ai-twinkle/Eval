@@ -121,7 +121,7 @@ def parse_bfcl_python_output(text: str) -> Optional[List[Dict]]:
     期望格式：[func_name1(param1=val1, param2=val2), func_name2(param=val)]
     對齊 BFCL 官方 default_decode_ast_prompting() 的邏輯。
 
-    推理模型（reasoning model）會在 reasoning_content 中把思考過程放在答案之前，
+    推理模型（reasoning model）可能會在 reasoning / reasoning_content 中把思考過程放在答案之前，
     例如：「Let me check... [func_name(param=val)]」
     此時直接解析全文會失敗，需要從後往前找最後一個 [identifier( 區塊。
     """
