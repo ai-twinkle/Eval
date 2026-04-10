@@ -74,13 +74,17 @@ class VisionMCQExtractor(Extractor):
         # 4. Markdown bold + 字母 + 分隔符（VLM 最常見格式：**A:** 或 **A)**）
         r"\*\*([A-Z])\*\*\s*[:.\)]",
         r"\*\*([A-Z])\s*[:.\)]",
-        # 5. 行首字母 + 分隔符（multi-line）
-        r"(?m)^\s*\(?([A-Z])\)?\s*[:.\)]\s+",
-        # 6. 括號包字母（如 "(A)" 或 "(B)"）
+        # 5. 括號包字母（如 "(A)" 或 "(B)"）—— 強訊號，置於 line-start 之前
         r"\(([A-Z])\)",
-        # 7. 末尾單獨字母（VLM 簡短回答：換行 + 單字母 + 可選句點 + EOS）
-        #    例：「...The 3rd number is 9.\n\nB」
+        # 6. 末尾單獨字母（VLM 簡短回答：換行 + 單字母 + 可選句點 + EOS）
+        #    例：「...The 3rd number is 9.\n\nB」。
+        #    必須優先於 line-start letter，否則「A) cat / B) dog / C) bird / D」這種
+        #    「選項回顯 + 答案在 echo list 之外」的情境會被誤抓成最後一個 echo 字母 C。
         r"(?:^|\n)\s*\*{0,2}([A-Z])\*{0,2}\s*[.。]?\s*$",
+        # 7. 行首字母 + 分隔符（multi-line）—— 最弱的 fallback
+        #    findall 會抓到所有匹配，extract() 會取最後一個。例如：
+        #    「A) cat / B) dog / C) bird / C. answer」會正確抓到結尾的 C。
+        r"(?m)^\s*\(?([A-Z])\)?\s*[:.\)]\s+",
     ]
 
     def __init__(self, config: Optional[Dict[str, Any]] = None) -> None:

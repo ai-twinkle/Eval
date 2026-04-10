@@ -183,6 +183,42 @@ class TestVisionMCQExtractor:
         )
         assert self.extractor.extract(text) == "B"
 
+    def test_extract_answer_outside_echoed_options_with_label(self) -> None:
+        # 答案 D 不在 echo list (A/B/C) 內，且明確用 "Answer: D" 標示
+        text = (
+            "A) cat\n"
+            "B) dog\n"
+            "C) bird\n"
+            "\n"
+            "Answer: D"
+        )
+        assert self.extractor.extract(text) == "D"
+
+    def test_extract_answer_outside_echoed_options_bare_letter(self) -> None:
+        # 答案 D 不在 echo list (A/B/C) 內，沒有 "Answer:" 字面，只在結尾留下單字母 D。
+        # 修正前 line-start letter pattern 會抓到最後一個 echo 字母 C，
+        # 修正後 bare-letter-at-end pattern 優先於 line-start，正確抓到 D。
+        text = (
+            "A) cat\n"
+            "B) dog\n"
+            "C) bird\n"
+            "\n"
+            "D"
+        )
+        assert self.extractor.extract(text) == "D"
+
+    def test_extract_answer_inside_echoed_options_bare_letter(self) -> None:
+        # 對稱案例：答案 C 在 echo list 內，結尾以單字母 C 結束。
+        # 確保 pattern reorder 對「答案在 echo 內」的常見情境仍正確（不應誤抓 A）。
+        text = (
+            "A) cat\n"
+            "B) dog\n"
+            "C) bird\n"
+            "\n"
+            "C"
+        )
+        assert self.extractor.extract(text) == "C"
+
     # ── \boxed{} / \box{} 支援（推理型 VLM 標準輸出）─────────────────────────
     def test_extract_boxed_letter(self) -> None:
         assert self.extractor.extract(r"After computing, \boxed{A}") == "A"
