@@ -739,6 +739,35 @@ twinkle-eval --init all              # 產生全部範本到 configs/
 - [ ] `tests/test_{name}.py` 已建立並通過（第 6.6 節），涵蓋 Extractor、Scorer、Checker、Registry、Example Dataset
 - [ ] `datasets/example/README.md` 已更新，包含新資料集的條目、config 範例、格式說明（第 6.5.1 節）
 
+### 強制 Reviewer Agent（給 coding agent 的硬性規定）
+
+任何 coding agent（含 Claude Code、Codex 等）在 push PR、或在 PR 上 push 新 commit 之前，**必須**先 spawn 一個獨立的 reviewer agent 對自己的變更做 code review。這條規則沒有例外，包含：
+
+- 第一次開 PR 之前
+- 後續每一次 push 新 commit 之前（不論變更大小）
+- 即使 coding agent 自認改動很單純、很有信心也一樣
+
+**做法**：使用 `Agent` 工具，通常選 `general-purpose` 或更專業的 reviewer subagent，給它：
+
+1. 完整的 diff（`git diff main...HEAD` 或對應分支的 base）
+2. 變更動機（為什麼這樣改、要解決什麼問題）
+3. 明確要求：找 bug、找架構違反 CLAUDE.md 原則之處、找邊界條件、找測試漏洞，回報 blockers / should-fix / nits 三層分級
+
+**規則**：
+
+- Reviewer agent 是**獨立第二意見**，coding agent 必須把它的回報當作真實的審查結論面對，不得忽略
+- 若 reviewer 回報 blocker，**必須在 push 前修掉**（或在無法修的情況下與使用者確認），不得帶 blocker 上 PR
+- Should-fix 與 nits 至少要在 commit message 或 PR 描述中明確列出處置方式（修了 / 開 follow-up issue / 解釋為何不修）
+- Coding agent 不得「review 自己」充當這一步——必須是另一個 spawn 出來的 agent，因為 coding agent 對自己剛寫的程式碼有確認偏差
+
+**執行 review 的時機**：
+
+- ✅ Push 之前（強制）
+- ✅ 大範圍重構告一段落時（即使還沒要 push）
+- ❌ 每次小 edit 之後（不需要，太頻繁會浪費 context）
+
+這條規則的目的是彌補 coding agent 看不到自己 blind spot 的弱點。歷史上多次發生 coding agent 自信滿滿 push 出去後才被使用者或其他 reviewer 找到明顯 bug 的情況，這條規則就是為了把這個 loop 內建到開發流程裡。
+
 ### 衝突確認
 確認本 PR 的修改是否與以下開放中 PR 有衝突：
 
