@@ -27,6 +27,20 @@ class VisionMCQExtractor(Extractor):
 
     uses_vision: bool = True
 
+    #: \boxed{} / \box{} 答案的正則表達式（最高優先序）。
+    #: 推理型 VLM（reasoning model）通常被訓練成最後輸出 ``\boxed{答案}``，
+    #: 這個格式來自數學 benchmark（GSM8K、MATH）並被推廣到所有 reasoning 場景。
+    #: 由於 ``\boxed{X}`` 是模型刻意框出的答案，沒有歧義，應該最先嘗試。
+    #:
+    #: 同時支援單反斜線（``\boxed{A}``，raw LaTeX）與雙反斜線（``\\boxed{A}``，
+    #: JSON-escaped）兩種輸出形式。
+    BOXED_PATTERNS: List[str] = [
+        # 字母答案：\boxed{A} / \boxed{**B**} / \box{C}
+        r"\\{1,2}box(?:ed)?\s*\{\s*\*{0,2}([A-Z])\*{0,2}\s*\}",
+        # Yes/No 答案：\boxed{Yes} / \boxed{是}
+        r"\\{1,2}box(?:ed)?\s*\{\s*\*{0,2}(yes|no|是|否)\*{0,2}\s*\}",
+    ]
+
     #: Yes/No 二元答案的正則表達式（POPE 等 benchmark 使用）
     #: 注意：CJK 字符不能用 \b（word boundary 對 CJK 不適用），
     #: 半形/全形冒號都要支援。
@@ -67,6 +81,7 @@ class VisionMCQExtractor(Extractor):
 
     def __init__(self, config: Optional[Dict[str, Any]] = None) -> None:
         super().__init__(config)
+        self._boxed_patterns = [re.compile(p, re.IGNORECASE) for p in self.BOXED_PATTERNS]
         self._yesno_patterns = [re.compile(p, re.IGNORECASE) for p in self.YESNO_PATTERNS]
         self._letter_patterns = [re.compile(p, re.IGNORECASE) for p in self.LETTER_PATTERNS]
 
@@ -77,9 +92,11 @@ class VisionMCQExtractor(Extractor):
         """從 VLM 輸出中提取選擇題答案。
 
         提取順序：
-        1. 先嘗試 Yes/No（POPE 等 benchmark），因為「Yes」「No」字面也可能
+        1. 先嘗試 ``\\boxed{}`` / ``\\box{}`` —— 推理型 VLM 的標準輸出格式，
+           沒有歧義，命中即回傳
+        2. 再嘗試 Yes/No（POPE 等 benchmark），因為「Yes」「No」字面也可能
            被字母 pattern 誤匹配為「Y」「N」
-        2. 再嘗試嚴格的字母 pattern（要求明確答案語境或 markdown 強調）
+        3. 最後嘗試嚴格的字母 pattern（要求明確答案語境或 markdown 強調）
 
         Returns:
             提取到的答案字串（"Yes"/"No" 或大寫字母），失敗時回傳 None。
@@ -87,7 +104,18 @@ class VisionMCQExtractor(Extractor):
         if not self.validate_output(llm_output):
             return None
 
-        # 1. 先試 Yes/No（更具體的格式）
+        # 1. 最高優先序：\boxed{} / \box{}（推理型 VLM 的標準輸出）
+        for pattern in self._boxed_patterns:
+            match = pattern.search(llm_output)
+            if match:
+                token = match.group(1).strip()
+                if token.lower() in ("yes", "是"):
+                    return "Yes"
+                if token.lower() in ("no", "否"):
+                    return "No"
+                return token.upper()
+
+        # 2. 再試 Yes/No（更具體的格式）
         for pattern in self._yesno_patterns:
             match = pattern.search(llm_output)
             if match:
@@ -97,7 +125,7 @@ class VisionMCQExtractor(Extractor):
                 if token in ("no", "否"):
                     return "No"
 
-        # 2. 再試字母選項（嚴格 VLM patterns）
+        # 3. 最後試字母選項（嚴格 VLM patterns）
         for pattern in self._letter_patterns:
             match = pattern.search(llm_output)
             if match:

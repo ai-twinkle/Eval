@@ -128,6 +128,45 @@ class TestVisionMCQExtractor:
         text = "After analyzing all options carefully.\n\n**Correct Answer: D**"
         assert self.extractor.extract(text) == "D"
 
+    # ── \boxed{} / \box{} 支援（推理型 VLM 標準輸出）─────────────────────────
+    def test_extract_boxed_letter(self) -> None:
+        assert self.extractor.extract(r"After computing, \boxed{A}") == "A"
+
+    def test_extract_box_letter(self) -> None:
+        # 單反斜線 \box{} 也支援
+        assert self.extractor.extract(r"The answer is \box{C}.") == "C"
+
+    def test_extract_boxed_bold_letter(self) -> None:
+        # \boxed{**B**} — 字母外有 markdown bold
+        assert self.extractor.extract(r"Final: \boxed{**B**}") == "B"
+
+    def test_extract_boxed_double_backslash(self) -> None:
+        # JSON-escaped 雙反斜線：\\boxed{D}
+        assert self.extractor.extract(r"Result: \\boxed{D}") == "D"
+
+    def test_extract_boxed_yes(self) -> None:
+        # POPE 場景：\boxed{Yes}
+        assert self.extractor.extract(r"Looking at the image, \boxed{Yes}") == "Yes"
+
+    def test_extract_boxed_no(self) -> None:
+        assert self.extractor.extract(r"There is no cat. \boxed{No}") == "No"
+
+    def test_extract_boxed_chinese_yes(self) -> None:
+        assert self.extractor.extract(r"答案：\boxed{是}") == "Yes"
+
+    def test_extract_boxed_takes_priority_over_letter_pattern(self) -> None:
+        # 即使輸出中有「The answer is A」這種字面，\boxed{B} 應優先
+        text = r"At first glance the answer is A, but actually \boxed{B}"
+        assert self.extractor.extract(text) == "B"
+
+    def test_extract_boxed_does_not_match_math_expression(self) -> None:
+        # \boxed{x^2 + 1} 不應該誤抓成字母（沒有單一 A-Z）
+        assert self.extractor.extract(r"\boxed{x^2 + 1}") is None
+
+    def test_extract_boxed_with_whitespace(self) -> None:
+        # \boxed{ A } — 內部有空白
+        assert self.extractor.extract(r"\boxed{ A }") == "A"
+
     # ── Edge cases ──────────────────────────────────────────────────────────
     def test_extract_empty_string(self) -> None:
         assert self.extractor.extract("") is None

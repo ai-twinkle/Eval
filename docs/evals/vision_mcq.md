@@ -99,8 +99,11 @@ Evaluator.uses_vision 路由
 `VisionMCQExtractor` 設定 `uses_vision = True` 讓 Evaluator 走圖片評測路徑。
 `extract()` 的提取順序：
 
-1. **先嘗試 Yes/No**（POPE 等 benchmark）— 順序很關鍵：避免「Yes」「No」字面被字母 pattern 誤抓為「Y」「N」
-2. **再嘗試字母選項**（嚴格 VLM-friendly patterns）
+1. **最高優先序：`\boxed{}` / `\box{}`** — 推理型 VLM（reasoning model）的標準輸出格式，沒有歧義，命中即回傳。同時支援單反斜線（raw LaTeX）與雙反斜線（JSON-escaped），以及字母（`\boxed{A}`）與 Yes/No（`\boxed{Yes}`/`\boxed{是}`）兩種內容
+2. **再嘗試 Yes/No**（POPE 等 benchmark）— 順序很關鍵：避免「Yes」「No」字面被字母 pattern 誤抓為「Y」「N」
+3. **最後嘗試字母選項**（嚴格 VLM-friendly patterns）
+
+`\boxed{}` 放在最前面的原因：推理型 VLM（Qwen2.5-VL、DeepSeek-VL2、LFM-VL with reasoning 等）被訓練成最後輸出 `\boxed{答案}`，這個格式來自 GSM8K/MATH 並被推廣到所有 reasoning 場景。即使 system prompt 沒明確要求，許多模型仍會自發產出 boxed 答案。對非 reasoning 模型則完全 inert（不會誤觸發），是零成本的 forward compatibility。
 
 字母選項採用**獨立的嚴格 patterns**而非 `PatternExtractor.DEFAULT_PATTERNS`：
 後者的兜底 `([A-Z]).` 會把英文文章中的單字首字母（"It does." → "I"）誤判為答案。
@@ -354,7 +357,8 @@ python run.py --data MMStar_MINI --model <YOUR_MODEL> \
 - Yes/No 與字母選項雙模式提取
 - 嚴格 VLM-friendly LETTER_PATTERNS（避免把英文文章中的隨機首字母誤判）
 - 本地圖片 base64 編碼 + 可選 Pillow 縮放
-- 40 個單元測試（含 7 個 MMStar_MINI regression case）
+- `\boxed{}` / `\box{}` 最高優先序提取（forward compat 給推理型 VLM）
+- 50 個單元測試（含 MMStar_MINI regression cases 與 boxed pattern 測試）
 - Example dataset（10 筆 MMStar 樣本）
 - VLMEvalKit 分數對比驗證（MMStar_MINI 150 題，差距 +1.33% 在容差內）
 - 速度對比測量（13x faster vs VLMEvalKit）
