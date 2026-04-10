@@ -76,9 +76,7 @@
 
 | 目錄 | 來源 | 題數 | 評測方法 | 說明 |
 |------|------|------|----------|------|
-| `vision_mcq/` | [lmms-lab/MMBench](https://huggingface.co/datasets/lmms-lab/MMBench) | ⏳ 待補 | `vision_mcq` | VLM 多模態 MCQ + POPE Yes/No 範例（含圖片檔案） |
-
-> ⏳ Phase 1 已完成 Extractor、Evaluator routing 與 28 個單元測試；example 資料集（10–20 筆 MMBench/POPE 樣本）將在後續 commit 補上。
+| `vision_mcq/` | [Lin-Chen/MMStar](https://huggingface.co/datasets/Lin-Chen/MMStar) | 10 | `vision_mcq` | VLM 多模態選擇題 A–D，含 MMStar coarse/fine perception 與 instance reasoning 範例（內含 jpg 圖片） |
 
 ## 快速開始
 

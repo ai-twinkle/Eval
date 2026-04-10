@@ -50,6 +50,30 @@ def _get_reasoning_text(message: Any) -> Optional[str]:
     return reasoning
 
 
+#: 編碼圖片時的最大檔案大小（bytes），預設 50 MB。
+#: 避免不小心把超大圖片塞進 base64 拖慢評測或撐爆 API 請求。
+_MAX_IMAGE_BYTES = 50 * 1024 * 1024
+
+
+def _detect_image_mime(data: bytes) -> str:
+    """從圖片檔案的 magic bytes 偵測 MIME subtype。
+
+    支援 JPEG / PNG / GIF / WEBP / BMP，無法辨識時回傳 "jpeg"（最寬鬆的兜底）。
+    這個函式是處理「副檔名缺失或不正確」的情境，比 splitext 更可靠。
+    """
+    if len(data) >= 8 and data[:8] == b"\x89PNG\r\n\x1a\n":
+        return "png"
+    if len(data) >= 3 and data[:3] == b"\xff\xd8\xff":
+        return "jpeg"
+    if len(data) >= 6 and data[:6] in (b"GIF87a", b"GIF89a"):
+        return "gif"
+    if len(data) >= 12 and data[:4] == b"RIFF" and data[8:12] == b"WEBP":
+        return "webp"
+    if len(data) >= 2 and data[:2] == b"BM":
+        return "bmp"
+    return "jpeg"
+
+
 def _encode_image_to_data_uri(
     image_path: str,
     max_image_size: Optional[int] = None,
@@ -59,47 +83,66 @@ def _encode_image_to_data_uri(
     若 image_path 已是 http(s):// 開頭的 URL，直接回傳。
     若 max_image_size 指定且 Pillow 可用，會將圖片最長邊縮放至該大小。
 
+    安全性與穩定性考量：
+    - 拒絕超過 ``_MAX_IMAGE_BYTES`` 的檔案（避免把 GB 級檔案塞進 API request）
+    - MIME type 從 magic bytes 偵測，而非僅依賴副檔名
+    - 路徑經 ``os.path.realpath`` 解析，避免符號連結意外指向 base64 編碼後外洩
+
     Args:
         image_path:     本地檔案路徑或 HTTP/HTTPS URL
         max_image_size: 最長邊像素數；None 表不縮放
 
     Returns:
         可放入 OpenAI image_url.url 的字串（URL 或 data URI）。
+
+    Raises:
+        FileNotFoundError: 圖片檔案不存在
+        ValueError:        檔案大小超過 ``_MAX_IMAGE_BYTES``
     """
     import base64
 
     if image_path.startswith(("http://", "https://")):
         return image_path
 
-    if not os.path.isfile(image_path):
+    # 解析符號連結並驗證檔案存在
+    real_path = os.path.realpath(image_path)
+    if not os.path.isfile(real_path):
         raise FileNotFoundError(f"圖片檔案不存在: {image_path}")
 
-    ext = os.path.splitext(image_path)[1].lstrip(".").lower() or "png"
-    # 將常見副檔名標準化為 MIME type
-    mime_map = {"jpg": "jpeg", "jpe": "jpeg"}
-    mime_subtype = mime_map.get(ext, ext)
+    file_size = os.path.getsize(real_path)
+    if file_size > _MAX_IMAGE_BYTES:
+        raise ValueError(
+            f"圖片檔案過大 ({file_size / 1024 / 1024:.1f} MB > "
+            f"{_MAX_IMAGE_BYTES / 1024 / 1024:.0f} MB): {image_path}。"
+            f"請使用 strategy_config.max_image_size 縮放，或預先壓縮圖片。"
+        )
 
     if max_image_size:
         try:
             from PIL import Image  # type: ignore
             import io as _io
 
-            with Image.open(image_path) as img:
+            with Image.open(real_path) as img:
                 img.thumbnail((max_image_size, max_image_size))
                 buf = _io.BytesIO()
-                save_format = "JPEG" if mime_subtype == "jpeg" else mime_subtype.upper()
+                # 使用偵測到的格式儲存（Pillow 認得的格式）
+                save_format = (img.format or "JPEG").upper()
                 if img.mode in ("RGBA", "LA", "P") and save_format == "JPEG":
                     img = img.convert("RGB")
                 img.save(buf, format=save_format)
-                b64 = base64.b64encode(buf.getvalue()).decode("utf-8")
+                payload = buf.getvalue()
+                b64 = base64.b64encode(payload).decode("utf-8")
+                mime_subtype = _detect_image_mime(payload)
                 return f"data:image/{mime_subtype};base64,{b64}"
         except ImportError:
             log_error("max_image_size 已設定但 Pillow 未安裝，跳過縮放。請執行 pip install twinkle-eval[vision]")
         except Exception as e:
             log_error(f"圖片縮放失敗 ({image_path}): {e}，回退為原始檔案編碼")
 
-    with open(image_path, "rb") as f:
-        b64 = base64.b64encode(f.read()).decode("utf-8")
+    with open(real_path, "rb") as f:
+        payload = f.read()
+    mime_subtype = _detect_image_mime(payload)
+    b64 = base64.b64encode(payload).decode("utf-8")
     return f"data:image/{mime_subtype};base64,{b64}"
 
 
@@ -772,16 +815,19 @@ class Evaluator:
                     messages = _build_vision_messages(image_url, question_text, image_detail)
 
                     self.rate_limiter.wait()
+                    # Vision 路徑使用預先建構的 multimodal messages，
+                    # question_text / prompt_lang / system_prompt 等參數
+                    # 在 OpenAIModel.call 內會被略過（messages != None 走另一條分支），
+                    # 為了可讀性這裡只傳必要的 kwargs。
                     future = executor.submit(
                         self.llm.call,
-                        question_text,
-                        prompt_lang,
-                        self.eval_method,
-                        self.system_prompt_enabled,
-                        self.samples_per_question,
-                        self.model_overrides,
-                        None,
-                        messages,
+                        question_text="",
+                        prompt_lang=prompt_lang,
+                        eval_method=self.eval_method,
+                        system_prompt_enabled=self.system_prompt_enabled,
+                        num_samples=self.samples_per_question,
+                        model_overrides=self.model_overrides,
+                        messages=messages,
                     )
                     future_tasks.append(future)
                     future_to_data[future] = (

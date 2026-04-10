@@ -128,6 +128,61 @@ class TestVisionMCQExtractor:
         text = "After analyzing all options carefully.\n\n**Correct Answer: D**"
         assert self.extractor.extract(text) == "D"
 
+    # ── Blocker 1 regression: "Answer: X" 不需要 "is" ────────────────────────
+    def test_extract_answer_colon_no_is(self) -> None:
+        # 修正前：pattern 1 強制要 "is"，"Answer: A" 完全抓不到
+        assert self.extractor.extract("Answer: A") == "A"
+
+    def test_extract_final_answer_colon(self) -> None:
+        assert self.extractor.extract("The final answer: B") == "B"
+
+    def test_extract_final_answer_with_is(self) -> None:
+        assert self.extractor.extract("Final answer is D") == "D"
+
+    def test_extract_answer_colon_with_period(self) -> None:
+        assert self.extractor.extract("The answer: A.") == "A"
+
+    def test_extract_answer_fullwidth_colon(self) -> None:
+        # 全形冒號（中文輸出常見）
+        assert self.extractor.extract("Answer：B") == "B"
+
+    # ── Blocker 2 regression: VLM 回顯選項列表時不能抓首字母 ─────────────────
+    def test_extract_option_echo_then_answer(self) -> None:
+        # 修正前：pattern 9（line-letter）抓到 "A) cat" 的 A
+        text = (
+            "Looking at the image:\n"
+            "A) cat\n"
+            "B) dog\n"
+            "C) bird\n"
+            "D) fish\n"
+            "\n"
+            "Answer: C"
+        )
+        assert self.extractor.extract(text) == "C"
+
+    def test_extract_option_echo_with_trailing_letter(self) -> None:
+        # 沒有 "Answer:" 字面，只有結尾單字母
+        text = (
+            "The image shows several options:\n"
+            "A) cat\n"
+            "B) dog\n"
+            "C) bird\n"
+            "\n"
+            "C"
+        )
+        assert self.extractor.extract(text) == "C"
+
+    def test_extract_option_echo_then_correct_answer_label(self) -> None:
+        text = (
+            "Options:\n"
+            "A. apple\n"
+            "B. banana\n"
+            "C. cherry\n"
+            "\n"
+            "Correct Answer: B"
+        )
+        assert self.extractor.extract(text) == "B"
+
     # ── \boxed{} / \box{} 支援（推理型 VLM 標準輸出）─────────────────────────
     def test_extract_boxed_letter(self) -> None:
         assert self.extractor.extract(r"After computing, \boxed{A}") == "A"

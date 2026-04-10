@@ -57,10 +57,14 @@ class VisionMCQExtractor(Extractor):
     #:
     #: 共用 trailing lookahead ``(?=[\s:.,;!?)\]]|$)`` 確保字母後接標點/空白/EOS，
     #: 避免「A1」「AB」這類非答案 token 被誤抓。
+    #:
+    #: 重要：extract() 對每個 pattern 採用 ``findall + 取最後一個 match``，
+    #: 因為 VLM 經常先回顯選項列表（A) cat / B) dog / ...）再給出最終答案，
+    #: 取最後一個匹配可避免被選項列表的第一個字母誤導。
     LETTER_PATTERNS: List[str] = [
-        # 1. 明確的英文答案宣告：optional bold + 字母
-        r"(?:correct\s+)?answer\s+is\s*:?\s*\*{0,2}([A-Z])\*{0,2}(?=[\s:.,;!?)\]]|$)",
-        r"(?:correct\s+)?(?:choice|option)\s+is\s*:?\s*\*{0,2}([A-Z])\*{0,2}(?=[\s:.,;!?)\]]|$)",
+        # 1. 明確的英文答案宣告（"is" 或 ":" 任一即可，涵蓋 "Answer: A"、"Answer is A"）
+        r"(?:correct\s+|final\s+)?answer(?:\s+is\s*[:：]?|\s*[:：])\s*\*{0,2}([A-Z])\*{0,2}(?=[\s:.,;!?)\]]|$)",
+        r"(?:correct\s+|final\s+)?(?:choice|option)(?:\s+is\s*[:：]?|\s*[:：])\s*\*{0,2}([A-Z])\*{0,2}(?=[\s:.,;!?)\]]|$)",
         # 2. "Correct Answer: X" / "Correct Option: **B**" / "**Correct Answer: A**"
         r"(?:correct|right)\s+(?:choice|option|answer)\s*[:：]\s*\*{0,2}([A-Z])\*{0,2}(?=[\s:.,;!?)\]]|$)",
         # 3. 明確的中文答案宣告
@@ -98,6 +102,11 @@ class VisionMCQExtractor(Extractor):
            被字母 pattern 誤匹配為「Y」「N」
         3. 最後嘗試嚴格的字母 pattern（要求明確答案語境或 markdown 強調）
 
+        每個 pattern 採 ``findall + 取最後一個 match`` 策略：VLM 常先回顯
+        選項列表（A) cat / B) dog / ...）再給最終答案，最後一個匹配通常
+        才是真正的答案。例如 ``A) cat\\nB) dog\\nC) bird\\nAnswer: C`` 應
+        抓到 ``C`` 而不是首行的 ``A``。
+
         Returns:
             提取到的答案字串（"Yes"/"No" 或大寫字母），失敗時回傳 None。
         """
@@ -106,9 +115,9 @@ class VisionMCQExtractor(Extractor):
 
         # 1. 最高優先序：\boxed{} / \box{}（推理型 VLM 的標準輸出）
         for pattern in self._boxed_patterns:
-            match = pattern.search(llm_output)
-            if match:
-                token = match.group(1).strip()
+            matches = pattern.findall(llm_output)
+            if matches:
+                token = matches[-1].strip()
                 if token.lower() in ("yes", "是"):
                     return "Yes"
                 if token.lower() in ("no", "否"):
@@ -117,9 +126,9 @@ class VisionMCQExtractor(Extractor):
 
         # 2. 再試 Yes/No（更具體的格式）
         for pattern in self._yesno_patterns:
-            match = pattern.search(llm_output)
-            if match:
-                token = match.group(1).strip().lower()
+            matches = pattern.findall(llm_output)
+            if matches:
+                token = matches[-1].strip().lower()
                 if token in ("yes", "是"):
                     return "Yes"
                 if token in ("no", "否"):
@@ -127,8 +136,8 @@ class VisionMCQExtractor(Extractor):
 
         # 3. 最後試字母選項（嚴格 VLM patterns）
         for pattern in self._letter_patterns:
-            match = pattern.search(llm_output)
-            if match:
-                return match.group(1).strip().upper()
+            matches = pattern.findall(llm_output)
+            if matches:
+                return matches[-1].strip().upper()
 
         return None
