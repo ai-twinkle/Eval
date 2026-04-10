@@ -93,6 +93,41 @@ class TestVisionMCQExtractor:
     def test_extract_parenthesized_letter(self) -> None:
         assert self.extractor.extract("After analysis, the answer is (B).") == "B"
 
+    # ── MMStar_MINI regression cases（gemma 4 31B 實際輸出格式）─────────────
+    def test_extract_correct_answer_bold_eos(self) -> None:
+        # "...The mean of Data Set A is **11**.\n\nCorrect Answer: **B**"
+        text = "The mean of Data Set A is **11**.\n\nCorrect Answer: **B**"
+        assert self.extractor.extract(text) == "B"
+
+    def test_extract_bold_correct_answer_full(self) -> None:
+        # "...= 9.\n\n**Correct Answer: A**"
+        text = "Final result = 9.\n\n**Correct Answer: A**"
+        assert self.extractor.extract(text) == "A"
+
+    def test_extract_correct_option_plain_eos(self) -> None:
+        # "...= 40°.\n\nCorrect Option: C"
+        text = "After computing the angles we get $\\angle CAB = 40°$.\n\nCorrect Option: C"
+        assert self.extractor.extract(text) == "C"
+
+    def test_extract_correct_option_bold_eos(self) -> None:
+        # "...explanation.\n\nCorrect Option: **B**"
+        text = "Looking at the chart values carefully.\n\nCorrect Option: **B**"
+        assert self.extractor.extract(text) == "B"
+
+    def test_extract_bare_letter_at_end(self) -> None:
+        # "...The 3rd number is 9.\n\nB"
+        text = "Counting from the left, the 3rd number is 9.\n\nB"
+        assert self.extractor.extract(text) == "B"
+
+    def test_extract_bare_letter_at_end_with_period(self) -> None:
+        # "...That makes 3 groups.\n\nC."
+        text = "That makes 3 groups.\n\nC."
+        assert self.extractor.extract(text) == "C"
+
+    def test_extract_bold_correct_answer_d(self) -> None:
+        text = "After analyzing all options carefully.\n\n**Correct Answer: D**"
+        assert self.extractor.extract(text) == "D"
+
     # ── Edge cases ──────────────────────────────────────────────────────────
     def test_extract_empty_string(self) -> None:
         assert self.extractor.extract("") is None

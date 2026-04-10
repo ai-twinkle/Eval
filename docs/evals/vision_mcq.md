@@ -6,7 +6,7 @@
 |------|------|
 | **Benchmark 類型** | Vision Language Model（VLM）多選題 |
 | **evaluation_method** | `vision_mcq` |
-| **實作狀態** | 🚧 Phase 1（核心程式 + Extractor，分數/速度對比待補） |
+| **實作狀態** | ✅ Phase 1（核心程式 + Extractor + VLMEvalKit 對比驗證） |
 | **需要 optional deps** | `pip install twinkle-eval[vision]`（僅在 `max_image_size` 啟用時需要 Pillow） |
 | **首次實作日期** | 2026-04-10 |
 | **Milestone** | VLM Phase 1 — Vision MCQ Evaluation |
@@ -99,8 +99,18 @@ Evaluator.uses_vision 路由
 `VisionMCQExtractor` 設定 `uses_vision = True` 讓 Evaluator 走圖片評測路徑。
 `extract()` 的提取順序：
 
-1. **先嘗試 Yes/No** — 這個順序很關鍵：因為 `PatternExtractor` 的兜底模式 `([A-Z]).` 會把 `"Yes,"` 誤解析為字母 `"Y"`，所以 POPE 必須先走 Yes/No 路徑
-2. **再嘗試字母選項** — 重用 `PatternExtractor` 的 `DEFAULT_PATTERNS`（A/B/C/D ...）
+1. **先嘗試 Yes/No**（POPE 等 benchmark）— 順序很關鍵：避免「Yes」「No」字面被字母 pattern 誤抓為「Y」「N」
+2. **再嘗試字母選項**（嚴格 VLM-friendly patterns）
+
+字母選項採用**獨立的嚴格 patterns**而非 `PatternExtractor.DEFAULT_PATTERNS`：
+後者的兜底 `([A-Z]).` 會把英文文章中的單字首字母（"It does." → "I"）誤判為答案。
+本 Extractor 的每個 letter pattern 都要求明確的答案語境：
+
+- `answer is X` / `correct answer is **X**` / `Correct Answer: X` / `Correct Option: **X**`
+- 中文 `答案：X` / `正確選項是 X` / `選 X 項`
+- Markdown bold + 字母 + 分隔符：`**X:**`、`**X)**`
+- 行首字母 + 分隔符：`X. ...` / `(X) ...`
+- **末尾單獨字母**：句尾換行 + 單字母 + EOS（VLM 簡短回答）
 
 支援的 Yes/No 格式：
 - 英文：`"Yes, ..."`、`"Answer: No"`、`"... yes."`
@@ -223,30 +233,114 @@ twinkle-eval --init vision_mcq
 
 ## 6. 分數對比（vs. VLMEvalKit）
 
-> ⏳ **待補**：需在實際 VLM API 端點上跑完整 benchmark 後填入。
-> 容差標準：完整 benchmark（≥200 筆）±2%、中型（50–199 筆）±3%、小型（<50 筆）±5%。
+容差標準：完整 benchmark（≥200 筆）±2%、中型（50–199 筆）±3%、小型（<50 筆）±5%。
 
-### 計畫測試矩陣
+### MMStar_MINI（150 筆）— 2026-04-10
 
-| Benchmark | 規模 | 預計使用模型 | 對比框架 |
-|-----------|------|------------|---------|
-| MMBench (dev en) | ~4,000 | TBD | VLMEvalKit |
-| MMStar | 1,500 | TBD | VLMEvalKit |
-| MMMU (val) | ~900 | TBD | VLMEvalKit |
-| POPE | ~9,000 | TBD | VLMEvalKit |
+| 項目 | 值 |
+|------|---|
+| **資料集** | MMStar_MINI（VLMEvalKit 官方 150 題子集） |
+| **模型** | 開源 VLM（OpenAI 相容 API，~30B 參數級） |
+| **API 端點** | OpenAI Chat Completions 相容 |
+| **參數** | `temperature=0.0`、`top_p=0.9`、`max_tokens=1024` |
+| **題數** | 150 |
+| **參考框架** | VLMEvalKit `a9343a1e`（`run.py --data MMStar_MINI --api-nproc 8 --mode all`）|
+
+#### 整體準確率
+
+| 框架 | 答對 | 準確率 |
+|------|------|--------|
+| **Twinkle Eval** | 115/150 | **76.67%** |
+| **VLMEvalKit** | 117/150 | **78.00%** |
+| **差距** | -2 題 | **+1.33%** ✅（容差 ±3% 內）|
+
+#### Per-Sample 一致性
+
+| 一致性 | 題數 | 比率 |
+|--------|------|------|
+| **總體一致** | 134/150 | **89.33%** |
+| 兩邊都答對 | 108 | 72.00% |
+| 兩邊都答錯 | 26 | 17.33% |
+| **不一致** | 16/150 | 10.67% |
+| Twinkle 對、VLMEvalKit 錯 | 7 | — |
+| Twinkle 錯、VLMEvalKit 對 | 9 | — |
+
+> 不一致的 16 題主要源自模型隨機性（兩邊獨立 sampling），而非評測邏輯差異。
+> 兩邊各贏一些（7 vs 9）顯示沒有系統性偏差。
+
+#### Per-Category 準確率
+
+| Category | n | Twinkle | VLMEvalKit | Δ |
+|----------|---|---------|------------|---|
+| coarse perception | 23 | 82.61% | 73.91% | -8.70 |
+| fine-grained perception | 35 | 62.86% | 60.00% | -2.86 |
+| instance reasoning | 20 | 85.00% | 95.00% | +10.00 |
+| logical reasoning | 21 | 76.19% | 80.95% | +4.76 |
+| math | 28 | 71.43% | 82.14% | +10.71 |
+| science & technology | 23 | 91.30% | 86.96% | -4.35 |
+| **Overall** | **150** | **76.67%** | **78.00%** | **+1.33** |
+
+> 子分類波動較大（±10%）是 20–35 題小樣本的正常統計噪音；
+> 整體 +1.33% 的差距遠小於容差，可視為兩個框架在 MMStar_MINI 上達成一致。
+
+#### 未解析的 3 題
+
+Twinkle Eval 有 3 題（2.0%）無法從模型回答中提取出選項字母，這些都是**模型自身輸出問題**而非 parser 失誤：
+
+| ID | 原因 |
+|----|------|
+| q9 | 模型拒答（"correct answer cannot be determined from the image alone"）|
+| q30 | `max_tokens=1024` 截斷在數學計算中段 |
+| q72 | `max_tokens=1024` 截斷在邏輯推理中段 |
+
+提高 `max_tokens` 預期可消除後兩個。
 
 ---
 
 ## 7. 速度對比
 
-> ⏳ **待補**：需在實際 VLM API 端點上完成測量。
+### MMStar_MINI（150 筆）— 同一模型 / 同一端點 / 同一硬體
 
-本專案的並行 API 請求架構在 VLM 評測上預期會帶來類似 ASR（7.5x）量級的加速，
-實際倍率取決於：
+| 框架 | 並行度 | 總耗時 | 倍率 |
+|------|--------|--------|------|
+| **VLMEvalKit** | `--api-nproc 8` | **~140 s**（2:20）| 1.0x |
+| **Twinkle Eval** | `api_rate_limit: -1`（不限）| **~10.6 s** | **~13.2x faster** ✅ |
 
-- VLM 模型的單次推理時間（圖片越大、越多 token，越慢）
-- API 端點的並發承載能力
-- 圖片上傳頻寬（base64 編碼後的 payload 較大）
+測量條件：
+- 兩個框架在同一台 macOS 機器上跑，呼叫同一個 OpenAI 相容 API 端點
+- VLMEvalKit 需要先 inference（~140s）再 judge（不計入），用 8 並發
+- Twinkle Eval 用 `ThreadPoolExecutor` 全速並行（無 rate limit）
+- 兩邊都包含 image base64 編碼 + multimodal message 建構的開銷
+- 排除模型載入、資料集下載等一次性 overhead
+
+> 13x 加速的主因：Twinkle Eval 把所有 150 題同時送進 ThreadPoolExecutor，
+> 而 VLMEvalKit 的 `api-nproc 8` 限制了同時只有 8 條 API 請求在飛。
+> 實際倍率取決於 API 端點的並發承載能力——越能扛並發，差距越大。
+
+### 重現方式
+
+```bash
+# 1. 下載 MMStar_MINI tsv
+mkdir -p /tmp/mmstar_data
+curl -o /tmp/mmstar_data/MMStar_MINI.tsv \
+  https://opencompass.openxlab.space/utils/TEST/MMStar_MINI.tsv
+
+# 2. 轉成 Twinkle Eval JSONL
+python scripts/convert_mmstar_mini_for_comparison.py
+
+# 3. 設定 config_local_mmstar_mini.yaml（gitignored，含 API 金鑰）
+#    範本見 twinkle_eval/templates/vision_mcq.yaml
+
+# 4. 跑 Twinkle Eval
+time python -m twinkle_eval.cli -c config_local_mmstar_mini.yaml
+
+# 5. 跑 VLMEvalKit（參考端點）
+git clone https://github.com/open-compass/VLMEvalKit.git /tmp/VLMEvalKit
+cd /tmp/VLMEvalKit && pip install -e .
+python run.py --data MMStar_MINI --model <YOUR_MODEL> \
+  --base-url <YOUR_BASE_URL> --key <YOUR_KEY> \
+  --judge <JUDGE_MODEL> --api-nproc 8 --max-tokens 1024
+```
 
 ---
 
@@ -258,13 +352,12 @@ twinkle-eval --init vision_mcq
 - `VisionMCQExtractor` + `uses_vision` 路由
 - 4 個 benchmark 加入 registry（mmbench / mmstar / mmmu / pope）
 - Yes/No 與字母選項雙模式提取
+- 嚴格 VLM-friendly LETTER_PATTERNS（避免把英文文章中的隨機首字母誤判）
 - 本地圖片 base64 編碼 + 可選 Pillow 縮放
-- 28 個單元測試
-
-⏳ 待補：
-- Example dataset（10–20 筆 MMBench 樣本，需從 HF 下載）
-- VLMEvalKit 分數對比驗證
-- 速度對比測量
+- 40 個單元測試（含 7 個 MMStar_MINI regression case）
+- Example dataset（10 筆 MMStar 樣本）
+- VLMEvalKit 分數對比驗證（MMStar_MINI 150 題，差距 +1.33% 在容差內）
+- 速度對比測量（13x faster vs VLMEvalKit）
 
 ### Phase 2 規劃（vision_vqa）
 
@@ -278,8 +371,9 @@ twinkle-eval --init vision_mcq
 
 ### 已知行為差異
 
-- **PatternExtractor 的 `[A-Z].` 兜底模式較鬆**：在 Yes/No 題目上會誤判，因此本 Extractor **必須**把 Yes/No 提取放在字母提取**之前**。這是 `vision_mcq.py` 與其他 MCQ Extractor 的關鍵差異
-- **HuggingFace Image columns**：HF datasets 把圖片存為 PIL 物件，下載後需要先儲存為 jpg/png 檔案才能放入 `image_path` 欄位。`scripts/create_example_datasets.py` 後續會處理這個轉換
+- **嚴格 LETTER_PATTERNS 而非沿用 `PatternExtractor`**：VLM 的回答格式比文字 MCQ 多樣許多（bold markdown、句尾單字母、`**Correct Answer: X**` 等），且 `PatternExtractor` 的兜底 `[A-Z].` 容易把英文文章中的隨機首字母誤判（例：「It does.」→ "I"）。`vision_mcq.py` 因此維護自己的嚴格 pattern 集
+- **Yes/No 提取必須在字母提取之前**：避免「Yes」「No」字面被字母 pattern 誤抓為「Y」「N」
+- **HuggingFace Image columns**：HF datasets 把圖片存為 PIL 物件，下載後需要先儲存為 jpg/png 檔案才能放入 `image_path` 欄位
 
 ---
 

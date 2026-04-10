@@ -40,22 +40,29 @@ class VisionMCQExtractor(Extractor):
     #: 字母選項的正則表達式（嚴格 VLM-friendly，按優先序排列）。
     #: 每個 pattern 都要求明確的答案語境（"answer is"、bold markdown、行首等），
     #: 避免匹配英文文章中隨機的單字首字母。
+    #:
+    #: 共用 trailing lookahead ``(?=[\s:.,;!?)\]]|$)`` 確保字母後接標點/空白/EOS，
+    #: 避免「A1」「AB」這類非答案 token 被誤抓。
     LETTER_PATTERNS: List[str] = [
-        # 1. 明確的英文答案宣告：optional bold + 字母 + 分隔符
-        r"(?:correct\s+)?answer\s+is\s*:?\s*\*{0,2}([A-Z])\*{0,2}\s*[:.\)\s]",
-        r"(?:correct\s+)?(?:choice|option)\s+is\s*:?\s*\*{0,2}([A-Z])\*{0,2}\s*[:.\)\s]",
-        r"(?:correct|right)\s+(?:choice|option|answer)\s*[:：]?\s*\*{0,2}([A-Z])\*{0,2}\s*[:.\)\s]",
-        # 2. 明確的中文答案宣告
+        # 1. 明確的英文答案宣告：optional bold + 字母
+        r"(?:correct\s+)?answer\s+is\s*:?\s*\*{0,2}([A-Z])\*{0,2}(?=[\s:.,;!?)\]]|$)",
+        r"(?:correct\s+)?(?:choice|option)\s+is\s*:?\s*\*{0,2}([A-Z])\*{0,2}(?=[\s:.,;!?)\]]|$)",
+        # 2. "Correct Answer: X" / "Correct Option: **B**" / "**Correct Answer: A**"
+        r"(?:correct|right)\s+(?:choice|option|answer)\s*[:：]\s*\*{0,2}([A-Z])\*{0,2}(?=[\s:.,;!?)\]]|$)",
+        # 3. 明確的中文答案宣告
         r"答案[是為:：]\s*\*{0,2}([A-Z])\*{0,2}",
         r"正確(?:的)?(?:答案|選項|選擇)[是為:：]?\s*\*{0,2}([A-Z])\*{0,2}",
         r"選\s*\*{0,2}([A-Z])\*{0,2}\s*[項。.]",
-        # 3. Markdown bold + 字母 + 分隔符（VLM 最常見格式：**A:** 或 **A)**）
+        # 4. Markdown bold + 字母 + 分隔符（VLM 最常見格式：**A:** 或 **A)**）
         r"\*\*([A-Z])\*\*\s*[:.\)]",
         r"\*\*([A-Z])\s*[:.\)]",
-        # 4. 行首字母 + 分隔符
+        # 5. 行首字母 + 分隔符（multi-line）
         r"(?m)^\s*\(?([A-Z])\)?\s*[:.\)]\s+",
-        # 5. 括號包字母（如 "(A)" 或 "(B)"）
+        # 6. 括號包字母（如 "(A)" 或 "(B)"）
         r"\(([A-Z])\)",
+        # 7. 末尾單獨字母（VLM 簡短回答：換行 + 單字母 + 可選句點 + EOS）
+        #    例：「...The 3rd number is 9.\n\nB」
+        r"(?:^|\n)\s*\*{0,2}([A-Z])\*{0,2}\s*[.。]?\s*$",
     ]
 
     def __init__(self, config: Optional[Dict[str, Any]] = None) -> None:
