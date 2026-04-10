@@ -173,6 +173,16 @@ def find_all_evaluation_files(dataset_root: str) -> list:
         FileNotFoundError: 當指定目錄中找不到任何支援的檔案時
     """
     supported_extensions = {".json", ".jsonl", ".parquet", ".arrow", ".csv", ".tsv"}
+    # 多模態評測（vision / asr）會把圖片或音檔放在 JSONL 旁邊，這些屬於資料集
+    # 的附帶資源，並非「不支援的評測檔案」，靜默跳過即可。
+    silent_skip_extensions = {
+        # 圖片
+        ".jpg", ".jpeg", ".png", ".gif", ".bmp", ".webp", ".tiff", ".tif",
+        # 音檔
+        ".wav", ".mp3", ".flac", ".m4a", ".ogg", ".opus", ".aac",
+        # 影片
+        ".mp4", ".mov", ".avi", ".mkv",
+    }
     all_files = []
 
     print(f"掃描目錄： {dataset_root}")
@@ -185,6 +195,9 @@ def find_all_evaluation_files(dataset_root: str) -> list:
                 continue
             if ext in supported_extensions:
                 all_files.append(file_path)
+            elif ext in silent_skip_extensions:
+                # 圖片/音檔等 multimodal 附帶資源，靜默略過
+                continue
             else:
                 print(f"⚠️ Warning: 跳過不支援的檔案 {file_path} (副檔名: {ext})")
     if not all_files:

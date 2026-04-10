@@ -28,6 +28,7 @@ from .scorers.text2sql import Text2SQLScorer
 from .scorers.string_match import StringMatchScorer
 from .extractors.asr import ASRExtractor
 from .scorers.asr import ASRScorer
+from .extractors.vision_mcq import VisionMCQExtractor
 
 # Preset：evaluation_method 字串 → (Extractor 類別, Scorer 類別)
 PRESETS: Dict[str, Tuple[Type[Extractor], Type[Scorer]]] = {
@@ -45,6 +46,7 @@ PRESETS: Dict[str, Tuple[Type[Extractor], Type[Scorer]]] = {
     "text2sql": (Text2SQLExtractor, Text2SQLScorer),
     "regex_match": (RegexMatchExtractor, StringMatchScorer),
     "asr": (ASRExtractor, ASRScorer),
+    "vision_mcq": (VisionMCQExtractor, ExactMatchScorer),
 }
 
 
@@ -125,4 +127,5 @@ __all__ = [
     "StringMatchScorer",
     "ASRExtractor",
     "ASRScorer",
+    "VisionMCQExtractor",
 ]

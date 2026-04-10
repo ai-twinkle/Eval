@@ -72,6 +72,14 @@
 |------|------|------|----------|------|
 | `bbh/` | [BIG-Bench-Hard](https://github.com/suzgunmirac/BIG-Bench-Hard) | 15 | `regex_match` | BBH 27 子任務取樣 — MC `(A)`/`(B)` + Binary `Yes`/`No` + Free-form（數字、字串序列） |
 
+### Vision MCQ（視覺多選題，VLM）
+
+| 目錄 | 來源 | 題數 | 評測方法 | 說明 |
+|------|------|------|----------|------|
+| `vision_mcq/` | [lmms-lab/MMBench](https://huggingface.co/datasets/lmms-lab/MMBench) | ⏳ 待補 | `vision_mcq` | VLM 多模態 MCQ + POPE Yes/No 範例（含圖片檔案） |
+
+> ⏳ Phase 1 已完成 Extractor、Evaluator routing 與 28 個單元測試；example 資料集（10–20 筆 MMBench/POPE 樣本）將在後續 commit 補上。
+
 ## 快速開始
 
 ### 選擇題（box 模式）
@@ -168,6 +176,31 @@ evaluation:
     en: "Follow each question's instructions carefully. Think step by step. You MUST end your response with exactly this format: 'the answer is {your answer}' where {your answer} is the option like (A), (B), etc., or the exact value like Yes, No, True, False, valid, invalid, or the computed result."
 ```
 
+### Vision MCQ（vision_mcq 模式，VLM）
+
+需要 vision-capable 的 OpenAI 相容 API 端點（如 vLLM + Qwen2-VL、OpenAI GPT-4o、NVIDIA Build VLM）。
+若需要圖片縮放，先安裝：`pip install twinkle-eval[vision]`
+
+```yaml
+llm_api:
+  type: "openai"
+  base_url: "http://localhost:8000/v1"
+  api_key: "your-api-key"
+
+model:
+  name: "your-vlm-model"
+  max_tokens: 1024
+
+evaluation:
+  dataset_paths:
+    - "datasets/example/vision_mcq/"
+  evaluation_method: vision_mcq
+  strategy_config:
+    image_field: "image_path"      # 圖片欄位名稱
+    max_image_size: null           # 最長邊像素數；null 為不縮放
+    image_detail: "auto"           # auto / low / high
+```
+
 ### ASR（asr 模式）
 
 需先安裝：`pip install twinkle-eval[asr]`
@@ -251,6 +284,16 @@ evaluation:
 {"id": "bbh_task_0", "question": "...", "answer": "(B)", "subtask": "disambiguation_qa"}
 ```
 `answer` 可為選項 `(A)`/`(B)`、布林值 `Yes`/`No`/`True`/`False`、數字 `24`、或字串序列 `barn damp dot`。
+
+**Vision MCQ（vision_mcq）**
+```json
+{"id": "mmbench_001", "image_path": "datasets/example/vision_mcq/images/001.jpg", "question": "What is the dominant color of the cat?", "A": "Black", "B": "White", "C": "Orange", "D": "Grey", "answer": "C"}
+```
+POPE Yes/No 格式：
+```json
+{"id": "pope_001", "image_path": "datasets/example/vision_mcq/images/coco_001.jpg", "question": "Is there a dog in the image?", "answer": "No"}
+```
+圖片欄位名稱可透過 `strategy_config.image_field` 自訂（預設 `image_path`），支援本地路徑或 HTTP/HTTPS URL。
 
 ## 重新生成
 

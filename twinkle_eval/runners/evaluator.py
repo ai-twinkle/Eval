@@ -50,6 +50,79 @@ def _get_reasoning_text(message: Any) -> Optional[str]:
     return reasoning
 
 
+def _encode_image_to_data_uri(
+    image_path: str,
+    max_image_size: Optional[int] = None,
+) -> str:
+    """將本地圖片檔案編碼為 base64 data URI。
+
+    若 image_path 已是 http(s):// 開頭的 URL，直接回傳。
+    若 max_image_size 指定且 Pillow 可用，會將圖片最長邊縮放至該大小。
+
+    Args:
+        image_path:     本地檔案路徑或 HTTP/HTTPS URL
+        max_image_size: 最長邊像素數；None 表不縮放
+
+    Returns:
+        可放入 OpenAI image_url.url 的字串（URL 或 data URI）。
+    """
+    import base64
+
+    if image_path.startswith(("http://", "https://")):
+        return image_path
+
+    if not os.path.isfile(image_path):
+        raise FileNotFoundError(f"圖片檔案不存在: {image_path}")
+
+    ext = os.path.splitext(image_path)[1].lstrip(".").lower() or "png"
+    # 將常見副檔名標準化為 MIME type
+    mime_map = {"jpg": "jpeg", "jpe": "jpeg"}
+    mime_subtype = mime_map.get(ext, ext)
+
+    if max_image_size:
+        try:
+            from PIL import Image  # type: ignore
+            import io as _io
+
+            with Image.open(image_path) as img:
+                img.thumbnail((max_image_size, max_image_size))
+                buf = _io.BytesIO()
+                save_format = "JPEG" if mime_subtype == "jpeg" else mime_subtype.upper()
+                if img.mode in ("RGBA", "LA", "P") and save_format == "JPEG":
+                    img = img.convert("RGB")
+                img.save(buf, format=save_format)
+                b64 = base64.b64encode(buf.getvalue()).decode("utf-8")
+                return f"data:image/{mime_subtype};base64,{b64}"
+        except ImportError:
+            log_error("max_image_size 已設定但 Pillow 未安裝，跳過縮放。請執行 pip install twinkle-eval[vision]")
+        except Exception as e:
+            log_error(f"圖片縮放失敗 ({image_path}): {e}，回退為原始檔案編碼")
+
+    with open(image_path, "rb") as f:
+        b64 = base64.b64encode(f.read()).decode("utf-8")
+    return f"data:image/{mime_subtype};base64,{b64}"
+
+
+def _build_vision_messages(
+    image_url: str,
+    question_text: str,
+    image_detail: str = "auto",
+) -> list:
+    """建構 OpenAI multimodal messages（image_url + text）。"""
+    return [
+        {
+            "role": "user",
+            "content": [
+                {
+                    "type": "image_url",
+                    "image_url": {"url": image_url, "detail": image_detail},
+                },
+                {"type": "text", "text": question_text},
+            ],
+        }
+    ]
+
+
 class RateLimiter:
     def __init__(self, calls_per_second: float) -> None:
         self.no_limit = calls_per_second == -1
@@ -645,6 +718,144 @@ class Evaluator:
                         "sum": sum(all_cer),
                         "count": len(all_cer),
                     }
+
+            elif getattr(self.extractor, "uses_vision", False):
+                # ── Vision 圖片路徑 ─────────────────────────────────────────
+                # 從 extractor 設定讀取 strategy_config 內的 vision 參數
+                vision_cfg = getattr(self.extractor, "_config", {}) or {}
+                image_field = vision_cfg.get("image_field", "image_path")
+                max_image_size = vision_cfg.get("max_image_size")
+                image_detail = vision_cfg.get("image_detail", "auto")
+
+                future_tasks = []
+                future_to_data: Dict[Any, Any] = {}
+
+                for idx, q in enumerate(tqdm(dataset, desc="處理題庫中")):
+                    if self.shuffle_options:
+                        q = self.shuffle_question_options(q)
+
+                    option_keys = sorted(
+                        [k for k in q if isinstance(k, str) and k.isupper() and len(k) <= 2]
+                    )
+
+                    image_path = q.get(image_field) or q.get("image_url") or q.get("image")
+                    if not image_path:
+                        log_error(f"問題 {idx + 1} 缺少圖片欄位 '{image_field}'，跳過")
+                        continue
+
+                    try:
+                        correct_answer = self.scorer.normalize(q["answer"])
+                    except (KeyError, AttributeError) as e:
+                        log_error(f"\n Error processing question {idx + 1}: {str(e)}")
+                        continue
+
+                    # 建構文字題目（與文字 MCQ 相同邏輯：question + 選項）
+                    question_text = (
+                        q["question"]
+                        + "\n"
+                        + "\n".join(
+                            [
+                                f"{k}: {v}"
+                                for k, v in q.items()
+                                if k not in ["question", "answer", image_field, "image_url", "image", "id"]
+                            ]
+                        )
+                    )
+
+                    # 圖片編碼為 data URI 或直接使用 URL
+                    try:
+                        image_url = _encode_image_to_data_uri(image_path, max_image_size)
+                    except FileNotFoundError as e:
+                        log_error(f"問題 {idx + 1} 圖片載入失敗: {e}")
+                        continue
+
+                    messages = _build_vision_messages(image_url, question_text, image_detail)
+
+                    self.rate_limiter.wait()
+                    future = executor.submit(
+                        self.llm.call,
+                        question_text,
+                        prompt_lang,
+                        self.eval_method,
+                        self.system_prompt_enabled,
+                        self.samples_per_question,
+                        self.model_overrides,
+                        None,
+                        messages,
+                    )
+                    future_tasks.append(future)
+                    future_to_data[future] = (
+                        question_text,
+                        correct_answer,
+                        idx,
+                        option_keys,
+                        image_path,
+                    )
+
+                for future in tqdm(
+                    as_completed(future_tasks), total=len(future_tasks), desc="處理回應中"
+                ):
+                    llm_chat_completion = future.result()
+                    usage = llm_chat_completion.usage
+                    (
+                        question_text,
+                        correct_answer,
+                        question_id,
+                        option_keys,
+                        image_path,
+                    ) = future_to_data[future]
+
+                    for sample_id, choice in enumerate(
+                        llm_chat_completion.choices[: self.samples_per_question]
+                    ):
+                        message = choice.message
+                        content = message.content
+                        reasoning_content = _get_reasoning_text(message)
+
+                        if content:
+                            content = _strip_think_blocks(content)
+                        if not content and reasoning_content:
+                            content = _strip_think_blocks(reasoning_content)
+                        content = content or ""
+
+                        predicted_raw = self.extractor.extract(content)
+                        predicted_answer = (
+                            None
+                            if predicted_raw is None
+                            else self.scorer.normalize(predicted_raw)
+                        )
+
+                        is_correct = (
+                            False
+                            if predicted_answer is None
+                            else self.scorer.score(predicted_answer, correct_answer)
+                        )
+
+                        question_stats.setdefault(question_id, {"correct": 0, "total": 0})
+                        if is_correct:
+                            question_stats[question_id]["correct"] += 1
+                            total_correct_samples += 1
+                        if predicted_answer is None:
+                            total_unparsed += 1
+                        question_stats[question_id]["total"] += 1
+                        total_samples += 1
+
+                        detailed_results.append(
+                            {
+                                "question_id": question_id,
+                                "sample_id": sample_id,
+                                "question": question_text,
+                                "image_path": image_path,
+                                "correct_answer": correct_answer,
+                                "llm_output": content,
+                                "llm_reasoning_output": reasoning_content,
+                                "predicted_answer": predicted_answer,
+                                "is_correct": is_correct,
+                                "usage_completion_tokens": usage.completion_tokens if usage else None,
+                                "usage_prompt_tokens": usage.prompt_tokens if usage else None,
+                                "usage_total_tokens": usage.total_tokens if usage else None,
+                            }
+                        )
 
             else:
                 # ── 文字解析路徑 ────────────────────────────────────────────

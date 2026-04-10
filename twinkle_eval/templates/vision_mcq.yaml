@@ -1,0 +1,47 @@
+# Twinkle Eval — Vision MCQ（視覺多選題）評測設定範本
+#
+# 用於評測 Vision Language Model（VLM）在多選題型 benchmark 的能力。
+# 涵蓋 MMBench、MMStar、MMMU、POPE 等主流 VLM benchmark。
+#
+# 評測流程：
+#   1. 從資料集讀取題目（含 image_path 欄位）
+#   2. 將圖片轉為 base64 data URI 或直接使用 URL
+#   3. 建構 OpenAI multimodal messages（image_url + text）
+#   4. 呼叫 Vision-capable Chat Completions API
+#   5. 從 LLM 文字回應中提取答案（A/B/C/D 或 Yes/No）
+#
+# 安裝：pip install twinkle-eval[vision]
+
+llm_api:
+  type: "openai"                               # Vision 模型走 Chat Completions
+  base_url: "http://localhost:8000/v1"         # 支援 vision 的 OpenAI 相容端點
+  api_key: "your-api-key"
+  api_rate_limit: -1                           # QPS，-1 為不限制
+  max_retries: 3
+  timeout: 300
+  disable_ssl_verify: false
+
+model:
+  name: "your-vlm-model"                       # VLM 模型名稱
+  temperature: 0.0
+  top_p: 0.9
+  max_tokens: 1024
+  frequency_penalty: 0.0
+  presence_penalty: 0.0
+  extra_body: null
+
+evaluation:
+  dataset_paths:
+    - "datasets/example/vision_mcq/"
+  evaluation_method: "vision_mcq"              # 固定為 "vision_mcq"
+  repeat_runs: 1
+  shuffle_options: false                       # VLM 題目通常不打亂選項
+
+  # Vision 專用設定（透過 strategy_config 傳遞）
+  strategy_config:
+    image_field: "image_path"                  # 資料集中圖片路徑/URL 的欄位名
+    max_image_size: null                       # 最大邊長（像素）；null 為不縮放，需 Pillow
+    image_detail: "auto"                       # OpenAI image_url detail: auto/low/high
+
+logging:
+  level: "INFO"
