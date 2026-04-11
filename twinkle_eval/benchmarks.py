@@ -190,6 +190,40 @@ BENCHMARK_REGISTRY: Dict[str, Dict[str, Any]] = {
         "eval_method": "asr",
         "license": "CC0-1.0",
     },
+    # ── Vision MCQ（視覺多選題）────────────────────────────────────────────
+    "mmbench": {
+        "source": "huggingface",
+        "hf_id": "lmms-lab/MMBench",
+        "split": "dev",
+        "subset": "en",
+        "description": "MMBench (dev en) — 多模態理解多選題評測",
+        "eval_method": "vision_mcq",
+        "license": "Apache-2.0",
+    },
+    "mmstar": {
+        "source": "huggingface",
+        "hf_id": "Lin-Chen/MMStar",
+        "split": "val",
+        "description": "MMStar — 視覺推理多選題（1500 題）",
+        "eval_method": "vision_mcq",
+        "license": "Apache-2.0",
+    },
+    "mmmu": {
+        "source": "huggingface",
+        "hf_id": "MMMU/MMMU",
+        "split": "validation",
+        "description": "MMMU (val) — 大規模多任務多模態評測（30 學科）",
+        "eval_method": "vision_mcq",
+        "license": "Apache-2.0",
+    },
+    "pope": {
+        "source": "huggingface",
+        "hf_id": "lmms-lab/POPE",
+        "split": "test",
+        "description": "POPE — 物件幻覺偵測（Yes/No 二元判斷）",
+        "eval_method": "vision_mcq",
+        "license": "MIT",
+    },
     # ── Text-to-SQL ───────────────────────────────────────────────────────
     "spider": {
         "source": "huggingface",

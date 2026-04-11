@@ -173,7 +173,19 @@ def find_all_evaluation_files(dataset_root: str) -> list:
         FileNotFoundError: 當指定目錄中找不到任何支援的檔案時
     """
     supported_extensions = {".json", ".jsonl", ".parquet", ".arrow", ".csv", ".tsv"}
+    # 多模態評測（vision / asr）會把圖片或音檔放在 JSONL 旁邊，這些屬於資料集
+    # 的附帶資源，逐檔 warn 會非常吵。改為統計後一次性 log_info，使用者既能
+    # 看到「這些檔案被視為附帶資源略過」的訊息，又不會被淹沒。
+    multimodal_resource_extensions = {
+        # 圖片
+        ".jpg", ".jpeg", ".png", ".gif", ".bmp", ".webp", ".tiff", ".tif",
+        # 音檔
+        ".wav", ".mp3", ".flac", ".m4a", ".ogg", ".opus", ".aac",
+        # 影片
+        ".mp4", ".mov", ".avi", ".mkv",
+    }
     all_files = []
+    skipped_resources: Dict[str, int] = {}
 
     print(f"掃描目錄： {dataset_root}")
     for root, dirs, files in os.walk(dataset_root):
@@ -185,12 +197,18 @@ def find_all_evaluation_files(dataset_root: str) -> list:
                 continue
             if ext in supported_extensions:
                 all_files.append(file_path)
+            elif ext in multimodal_resource_extensions:
+                # 多模態附帶資源（image/audio/video），統計後一次性回報
+                skipped_resources[ext] = skipped_resources.get(ext, 0) + 1
             else:
                 print(f"⚠️ Warning: 跳過不支援的檔案 {file_path} (副檔名: {ext})")
     if not all_files:
         raise FileNotFoundError(f"在 {dataset_root} 下未找到可讀取的評測檔案")
     log_info(f"評測集資料夾： {dataset_root}")
     log_info(f"發現 {len(all_files)} 個評測檔案")
+    if skipped_resources:
+        summary = ", ".join(f"{ext}×{n}" for ext, n in sorted(skipped_resources.items()))
+        log_info(f"  附帶多模態資源（已略過載入）: {summary}")
     return all_files
 
 

@@ -139,3 +139,4 @@ configs/*.yaml
 
 # personal analysis notes (not for commit)
 issues_analysis.md
+.gstack/

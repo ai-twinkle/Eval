@@ -56,6 +56,7 @@ from .metrics import (
     StringMatchScorer,
     ASRExtractor,
     ASRScorer,
+    VisionMCQExtractor,
     create_metric_pair,
     get_available_methods,
 )
@@ -101,6 +102,7 @@ __all__ = [
     "StringMatchScorer",
     "ASRExtractor",
     "ASRScorer",
+    "VisionMCQExtractor",
     "create_metric_pair",
     "get_available_methods",
     # 向下相容別名（舊名稱）

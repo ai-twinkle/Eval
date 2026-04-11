@@ -72,6 +72,9 @@ tool = [
 asr = [
     "jiwer>=3.0.0",
 ]
+vision = [
+    "Pillow>=10.0.0",
+]
 ifeval = [
     "langdetect>=1.0.9",
     "nltk>=3.8.0",
