@@ -5,6 +5,23 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.8.0] - 2026-04-10
+
+### Added
+- **VLM Phase 1 — Vision MCQ 視覺多選題評測**（Milestone #22，PR #134）：
+  - `VisionMCQExtractor`：支援字母答案（A–Z）與 Yes/No 二元答案（POPE 等幻覺偵測），優先解析 `\boxed{}` / `\box{}`（推理型 VLM 標準輸出格式），以 `findall + 取最後一個 match` 策略處理 VLM 回顯選項列表後再給答案的常見情境
+  - Evaluator 新增 `uses_vision` 路由：`_encode_image_to_data_uri()` 以 magic-byte 偵測 MIME（PNG/JPEG/GIF/WebP/BMP），`os.path.realpath` 解析 symlink，50MB 大小上限保護
+  - 支援本地檔案（base64 data URI）與 HTTP/HTTPS URL（直接傳遞）
+  - 4 個 vision benchmark：MMBench、MMStar、MMMU、POPE
+  - Example dataset：10 筆 MMStar 樣本（`datasets/example/vision_mcq/`，含 jpg 圖片）
+  - `docs/evals/vision_mcq.md`：含分數對比與速度對比
+  - 61 個 vision_mcq 測試（`tests/test_vision_mcq.py`）
+  - Optional dependency `vision = ["Pillow>=10.0.0"]`（圖片驗證/縮放）
+
+### Changed
+- `datasets/file.py`：多模態附帶資源（圖片、音檔、影片）改為統計後一次性 `log_info`，避免逐檔 warn 噪音
+- CLAUDE.md §13 新增「強制 Reviewer Agent」規定：所有 coding agent 在任何 PR push 之前，必須先 spawn 獨立的 reviewer agent 檢查 diff，blocker 必須先處理才能 push
+
 ## [2.7.1] - 2026-04-09
 
 ### Fixed
