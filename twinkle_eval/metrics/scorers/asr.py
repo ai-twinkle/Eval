@@ -3,7 +3,7 @@
 計算語音辨識的 WER（Word Error Rate）與 CER（Character Error Rate）。
 依語言自動選擇指標：中文/日文/韓文使用 CER，其他語言使用 WER。
 
-依賴：jiwer（optional dependency，透過 pip install twinkle-eval[asr] 安裝）
+依賴：jiwer（optional dependency，透過 pip install maiagent-eval[asr] 安裝）
 """
 
 import re
@@ -23,8 +23,9 @@ _CJK_RANGES = [
     (0x3000, 0x303F),    # CJK Symbols and Punctuation
 ]
 
-# 使用 CER 的語言（ISO 639-1）
-_CER_LANGUAGES = {"zh", "ja", "ko", "th"}
+# 使用 CER 的語言（ISO 639-1 / BCP-47 subtag）
+# "nan" = Min-nan / Taiwanese Hokkien (ISO 639-3 / BCP-47: nan-TW)
+_CER_LANGUAGES = {"zh", "ja", "ko", "th", "nan"}
 
 
 def _is_cjk_char(cp: int) -> bool:
@@ -76,6 +77,8 @@ class ASRScorer(Scorer):
         normalize_unicode: bool — 是否做 NFKC 正規化（預設 True）。
         remove_punctuation: bool — 是否移除標點（預設 True）。
         to_lower: bool — 是否轉小寫（預設 True）。
+        opencc_convert: str — OpenCC 轉換方向，例如 "s2tw"（簡→繁）、"t2s"（繁→簡）。
+            用於 Qwen 系模型輸出簡體時校正 CER（預設 None，不轉換）。
     """
 
     def __init__(self, config: Optional[Dict[str, Any]] = None) -> None:
@@ -85,6 +88,14 @@ class ASRScorer(Scorer):
         self._normalize_unicode: bool = self._config.get("normalize_unicode", True)
         self._remove_punctuation: bool = self._config.get("remove_punctuation", True)
         self._to_lower: bool = self._config.get("to_lower", True)
+        self._opencc_convert: Optional[str] = self._config.get("opencc_convert", None)
+        self._opencc = None
+        if self._opencc_convert:
+            try:
+                import opencc
+                self._opencc = opencc.OpenCC(self._opencc_convert)
+            except ImportError:
+                pass
 
     def get_name(self) -> str:
         return "asr"
@@ -99,13 +110,19 @@ class ASRScorer(Scorer):
     def normalize(self, answer: str) -> str:
         """正規化轉錄文字。
 
-        步驟：
-        1. NFKC Unicode 正規化（全形轉半形等）
-        2. 轉小寫
-        3. 移除標點符號
-        4. 壓縮連續空白
+        對 nan（台語）語言使用專屬 normalizer 處理漢羅混寫與 Tailo 聲調符號。
+        其他語言執行標準 NFKC + 小寫 + 去標點流程。
         """
+        if self._language == "nan":
+            from twinkle_eval.metrics.normalizers.taiwanese import normalize_taiwanese
+            strip_tones = self._config.get("strip_tone_marks", True)
+            return normalize_taiwanese(str(answer), strip_tones=strip_tones)
+
         text = str(answer)
+
+        # OpenCC 轉換（例如 s2tw：Qwen 簡體輸出 → 繁體比較）
+        if self._opencc is not None:
+            text = self._opencc.convert(text)
 
         if self._normalize_unicode:
             text = unicodedata.normalize("NFKC", text)
@@ -151,7 +168,7 @@ class ASRScorer(Scorer):
             import jiwer
         except ImportError:
             raise ImportError(
-                "ASR 評測需要 jiwer 套件。請安裝：pip install twinkle-eval[asr]"
+                "ASR 評測需要 jiwer 套件。請安裝：pip install maiagent-eval[asr]"
             )
 
         pred_norm = self.normalize(predicted)
@@ -159,17 +176,32 @@ class ASRScorer(Scorer):
 
         is_correct = pred_norm == gold_norm
 
-        # 計算 WER
+        # WER 完整拆解：S/D/I + 漏字率/幻覺率/召回率
         if gold_norm.strip():
-            wer = jiwer.wer(gold_norm, pred_norm)
+            word_out = jiwer.process_words(gold_norm, pred_norm)
+            wer = word_out.wer
+            n_ref_words = sum(len(r) for r in word_out.references)
+            deletion_rate = word_out.deletions / n_ref_words if n_ref_words else 0.0
+            insertion_rate = word_out.insertions / n_ref_words if n_ref_words else 0.0
+            substitution_rate = word_out.substitutions / n_ref_words if n_ref_words else 0.0
+            word_recall = 1.0 - deletion_rate
         else:
             wer = 0.0 if not pred_norm.strip() else 1.0
+            deletion_rate = insertion_rate = substitution_rate = 0.0
+            word_recall = 1.0
 
-        # 計算 CER
+        # CER 完整拆解
         if gold_norm.strip():
-            cer = jiwer.cer(gold_norm, pred_norm)
+            char_out = jiwer.process_characters(gold_norm, pred_norm)
+            cer = char_out.cer
+            n_ref_chars = sum(len(r) for r in char_out.references)
+            char_deletion_rate = char_out.deletions / n_ref_chars if n_ref_chars else 0.0
+            char_insertion_rate = char_out.insertions / n_ref_chars if n_ref_chars else 0.0
+            char_recall = 1.0 - char_deletion_rate
         else:
             cer = 0.0 if not pred_norm.strip() else 1.0
+            char_deletion_rate = char_insertion_rate = 0.0
+            char_recall = 1.0
 
         metric = self.metric_name
         metric_value = cer if metric == "cer" else wer
@@ -180,6 +212,15 @@ class ASRScorer(Scorer):
             "cer": round(cer, 6),
             "metric": metric,
             "metric_value": round(metric_value, 6),
+            # 漏字/幻覺/召回（word-level）
+            "deletion_rate": round(deletion_rate, 6),
+            "insertion_rate": round(insertion_rate, 6),
+            "substitution_rate": round(substitution_rate, 6),
+            "word_recall": round(word_recall, 6),
+            # 漏字/幻覺/召回（character-level）
+            "char_deletion_rate": round(char_deletion_rate, 6),
+            "char_insertion_rate": round(char_insertion_rate, 6),
+            "char_recall": round(char_recall, 6),
             "predicted_normalized": pred_norm,
             "gold_normalized": gold_norm,
         }

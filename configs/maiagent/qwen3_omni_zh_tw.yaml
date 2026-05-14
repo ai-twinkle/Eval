@@ -1,0 +1,38 @@
+# MaiAgent ASR Eval — Qwen-Omni-Turbo × CommonVoice zh-TW（台灣國語）
+#
+# Qwen3.5-Omni arXiv:2509.17765
+# 部署：DashScope 國際版 (Chat Completions 多模態模式)
+# 需要：export DASHSCOPE_API_KEY=<your-key>
+#
+# audio 以 base64 data URI 傳入（evaluator 已處理）
+# 評測集：CommonVoice zh-TW test split（FLEURS 無 zh-TW variant，僅有 cmn_hans_cn）
+# 先執行：python scripts/download_cv_zh_tw_100.py
+#
+# ⚠️  Qwen-Omni 輸出簡體中文，OpenCC s2tw 後處理可降低 CER
+
+llm_api:
+  type: "openai"
+  base_url: "https://dashscope-intl.aliyuncs.com/compatible-mode/v1"
+  api_key: "${DASHSCOPE_API_KEY}"
+  api_rate_limit: -1
+  max_retries: 3
+  timeout: 300
+
+model:
+  name: "qwen-omni-turbo"
+  temperature: 0.0
+  top_p: 1.0
+  max_tokens: 512
+  extra_body: {}
+
+evaluation:
+  dataset_paths:
+    - "datasets/cv_zh_tw/test_100.jsonl"
+  evaluation_method: "asr"
+  strategy_config:
+    asr_language: "zh"
+    asr_metric: "cer"
+    remove_punctuation: true
+    to_lower: true
+    normalize_unicode: true
+    opencc_convert: "s2tw"  # Qwen-Omni 輸出簡體 → 轉繁體再比對

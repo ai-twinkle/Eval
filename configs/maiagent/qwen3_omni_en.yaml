@@ -1,0 +1,34 @@
+# MaiAgent ASR Eval — Qwen3-Omni × LibriSpeech（英文）
+#
+# Qwen3.5-Omni arXiv:2509.17765
+# 部署：DashScope 國際版 (Chat Completions 多模態模式)
+# 需要：export DASHSCOPE_API_KEY=<your-key>
+#
+# audio 以 base64 data URI 傳入（evaluator 已處理）
+# 若想用 zh-TW 評測集改 asr_language: "zh" + dataset_paths
+
+llm_api:
+  type: "openai"
+  base_url: "https://dashscope-intl.aliyuncs.com/compatible-mode/v1"
+  api_key: "${DASHSCOPE_API_KEY}"
+  api_rate_limit: -1
+  max_retries: 3
+  timeout: 300
+
+model:
+  name: "qwen-omni-turbo"
+  temperature: 0.0
+  top_p: 1.0
+  max_tokens: 512
+  extra_body: {}
+
+evaluation:
+  dataset_paths:
+    - "datasets/librispeech_en/test_100.jsonl"
+  evaluation_method: "asr"
+  strategy_config:
+    asr_language: "en"
+    asr_metric: "wer"
+    remove_punctuation: true
+    to_lower: true
+    normalize_unicode: true

@@ -1,0 +1,28 @@
+# MaiAgent ASR Eval — Breeze ASR 25 × TAT S2ST（台語/閩南語）— 本機修正版
+#
+# 使用 jaren-x570 本機伺服器（已修 return_timestamps=False looping bug）
+# 舊 NCHC 跑出 WER=152.5%，是 looping bug 造成，此版重跑驗證
+
+llm_api:
+  type: "whisper"
+  base_url: "http://100.120.175.87:8765/v1"
+  api_key: "sk-breeze-jaron-2026"
+  api_rate_limit: -1
+  max_retries: 3
+  timeout: 120
+
+model:
+  name: "breeze-asr-25"
+  temperature: 0.0
+
+evaluation:
+  dataset_paths:
+    - "datasets/tat_s2st/test_100.jsonl"
+  evaluation_method: "asr"
+  strategy_config:
+    asr_language: "zh"
+    asr_metric: "cer"
+    remove_punctuation: true
+    to_lower: true
+    normalize_unicode: true
+    strip_tone_marks: true
