@@ -1,0 +1,36 @@
+# MaiAgent ASR Eval — Qwen-Omni-Turbo × TAT-S2ST（台語/閩南語）
+#
+# Qwen3.5-Omni arXiv:2509.17765
+# 部署：DashScope 國際版 (Chat Completions 多模態模式)
+# 需要：export DASHSCOPE_API_KEY=<your-key>
+#
+# audio 以 base64 data URI 傳入（evaluator 已處理）
+# 注意：TAT-S2ST reference 為漢羅混寫，CER 會系統性偏高（參見評測報告 F4 發現）
+# Qwen-Omni 不是專門台語模型，測此集主要用作 baseline 參考
+
+llm_api:
+  type: "openai"
+  base_url: "https://dashscope-intl.aliyuncs.com/compatible-mode/v1"
+  api_key: "${DASHSCOPE_API_KEY}"
+  api_rate_limit: -1
+  max_retries: 3
+  timeout: 300
+
+model:
+  name: "qwen-omni-turbo"
+  temperature: 0.0
+  top_p: 1.0
+  max_tokens: 512
+  extra_body: {}
+
+evaluation:
+  dataset_paths:
+    - "datasets/tat_s2st/test_100.jsonl"
+  evaluation_method: "asr"
+  strategy_config:
+    asr_language: "nan"
+    asr_metric: "cer"
+    remove_punctuation: true
+    to_lower: true
+    normalize_unicode: true
+    strip_tone_marks: true

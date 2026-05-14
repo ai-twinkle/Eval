@@ -1,0 +1,32 @@
+# MaiAgent ASR Eval — Qwen3-ASR-Flash × FLEURS cmn_hans_cn（普通話，大陸口音）
+#
+# Qwen3-ASR arXiv:2601.21337
+# 部署：DashScope 國際版
+# 需要：export DASHSCOPE_API_KEY=<your-key>
+#
+# ⚠️  FLEURS 僅有 cmn_hans_cn（簡體，大陸口音），無 zh-TW variant
+# reference 為簡體中文 → 不需要 OpenCC 轉換
+# 先執行：python scripts/download_fleurs_cmn_hans_cn.py
+
+llm_api:
+  type: "dashscope_asr"
+  base_url: "https://dashscope-intl.aliyuncs.com/api/v1/services/aigc/multimodal-generation/generation"
+  api_key: "${DASHSCOPE_API_KEY}"
+  api_rate_limit: 5
+  max_retries: 4
+  timeout: 180
+
+model:
+  name: "qwen3-asr-flash-2026-02-10"
+  temperature: 0.0
+
+evaluation:
+  dataset_paths:
+    - "datasets/fleurs_cmn_hans_cn/test_100.jsonl"
+  evaluation_method: "asr"
+  strategy_config:
+    asr_language: "zh"
+    asr_metric: "cer"
+    remove_punctuation: true
+    to_lower: true
+    normalize_unicode: true

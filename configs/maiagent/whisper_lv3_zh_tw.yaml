@@ -1,0 +1,27 @@
+# MaiAgent ASR Eval — Whisper Large V3 × CommonVoice zh-TW（國語基準線）
+#
+# 部署：NCHC Taiwan AI RAP  model_id=Whisper-Large-V3
+# 需要：export NCHC_RAP_API_KEY=<your-key>
+
+llm_api:
+  type: "whisper"
+  base_url: "https://portal.genai.nchc.org.tw/api/v1"
+  api_key: "${NCHC_RAP_API_KEY}"
+  api_rate_limit: -1
+  max_retries: 3
+  timeout: 120
+
+model:
+  name: "Whisper-Large-V3"
+  temperature: 0.0
+
+evaluation:
+  dataset_paths:
+    - "datasets/cv_zh_tw/test.jsonl"
+  evaluation_method: "asr"
+  strategy_config:
+    asr_language: "zh"
+    asr_metric: "cer"
+    remove_punctuation: true
+    to_lower: true
+    normalize_unicode: true
