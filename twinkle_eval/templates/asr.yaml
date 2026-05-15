@@ -1,10 +1,10 @@
-# MaiAgent Eval — ASR（語音辨識）評測設定範本
+# Twinkle Eval — ASR（語音辨識）評測設定範本
 #
 # 支援兩種 API 模式：
 #   1. Whisper API（/v1/audio/transcriptions）：設定 llm_api.type 為 "whisper"
 #   2. Chat Completions 多模態（Qwen2-Audio 等）：設定 llm_api.type 為 "openai"
 #
-# 安裝：pip install maiagent-eval[asr]
+# 安裝：pip install twinkle-eval[asr]
 
 llm_api:
   # --- Whisper API 模式 ---
