@@ -220,18 +220,24 @@ class TwinkleEvalRunner:
         if self.config is None:
             raise ConfigurationError("配置未載入")
 
-        # 移除物件實例（不可序列化）
-        if "llm_instance" in self.config:
-            del self.config["llm_instance"]
-
-        save_config = copy.deepcopy(self.config)
+        # 排除物件實例（不可序列化）後再複製，避免就地修改 self.config
+        # 導致同一個 runner 無法重複執行
+        config_without_instances = {
+            k: v
+            for k, v in self.config.items()
+            if k
+            not in (
+                "llm_instance",
+                "evaluation_strategy_instance",
+                "extractor_instance",
+                "scorer_instance",
+            )
+        }
+        save_config = copy.deepcopy(config_without_instances)
 
         # 移除敏感資訊（API 金鑰）
         if "llm_api" in save_config and "api_key" in save_config["llm_api"]:
             del save_config["llm_api"]["api_key"]
-        for key in ("evaluation_strategy_instance", "extractor_instance", "scorer_instance"):
-            if key in save_config:
-                del save_config[key]
 
         return save_config
 
@@ -280,11 +286,23 @@ class TwinkleEvalRunner:
             except (OSError, ValueError):
                 continue
 
-            for key in ("evaluation_method", "system_prompt_enabled", "samples_per_question",
-                        "pass_k", "repeat_runs", "shuffle_options"):
+            for key in (
+                "evaluation_method",
+                "system_prompt_enabled",
+                "samples_per_question",
+                "pass_k",
+                "repeat_runs",
+                "shuffle_options",
+            ):
                 if key in cfg:
                     settings[key] = cfg[key]
-            for mk in ("temperature", "top_p", "max_tokens", "frequency_penalty", "presence_penalty"):
+            for mk in (
+                "temperature",
+                "top_p",
+                "max_tokens",
+                "frequency_penalty",
+                "presence_penalty",
+            ):
                 if mk in cfg:
                     settings["model_overrides"][mk] = cfg[mk]
 
@@ -337,9 +355,11 @@ class TwinkleEvalRunner:
                     run_key = f"eval_results_{self.start_time}_run{run}.jsonl"
                     if run_key in completed_records:
                         from .datasets.file import Dataset as _Dataset
+
                         ds_len = len(_Dataset(file_path))
                         completed_for_file = sum(
-                            1 for rec in completed_records[run_key]
+                            1
+                            for rec in completed_records[run_key]
                             if rec.startswith(f"{file_path}|")
                         )
                         if completed_for_file >= ds_len:
@@ -449,6 +469,7 @@ class TwinkleEvalRunner:
         strategy_config = self.config["evaluation"].get("strategy_config", {})
         # 快取已建立的 (extractor, scorer) 配對，避免重複實例化
         from .metrics import create_metric_pair
+
         default_method = self.config["evaluation"]["evaluation_method"]
         metric_cache = {default_method: create_metric_pair(default_method, strategy_config)}
 
@@ -477,7 +498,8 @@ class TwinkleEvalRunner:
                 )
 
                 dataset_result = self._evaluate_dataset(
-                    dataset_path, evaluator,
+                    dataset_path,
+                    evaluator,
                     repeat_runs=ds["repeat_runs"],
                     pass_k=ds["pass_k"],
                     completed_records=completed_records,
@@ -1173,6 +1195,7 @@ def main() -> int:
     if args.finalize_results:
         try:
             from .runners.finalize import finalize_results
+
             return finalize_results(
                 args.finalize_results,
                 getattr(args, "hf_repo_id", None),
@@ -1226,7 +1249,11 @@ def main() -> int:
     # Benchmark 命令
     if args.benchmark:
         try:
-            from .runners.benchmark import BenchmarkRunner, print_benchmark_summary, save_benchmark_results
+            from .runners.benchmark import (
+                BenchmarkRunner,
+                print_benchmark_summary,
+                save_benchmark_results,
+            )
             from .core.config import load_config
 
             config = load_config(args.config)
@@ -1253,14 +1280,25 @@ def main() -> int:
             # 顯示結果摘要
             print_benchmark_summary(metrics)
 
-            # 儲存結果
+            # 儲存結果（排除不可序列化實例並移除 API 金鑰，避免敏感資訊寫入結果檔）
             timestamp = time.strftime("%Y%m%d_%H%M%S")
             output_path = f"benchmark_results_{timestamp}.json"
-            if "llm_instance" in config:
-                del config["llm_instance"]
-            if "evaluation_strategy_instance" in config:
-                del config["evaluation_strategy_instance"]
-            save_benchmark_results(metrics, output_path, config)
+            safe_config = copy.deepcopy(
+                {
+                    k: v
+                    for k, v in config.items()
+                    if k
+                    not in (
+                        "llm_instance",
+                        "evaluation_strategy_instance",
+                        "extractor_instance",
+                        "scorer_instance",
+                    )
+                }
+            )
+            if "llm_api" in safe_config and "api_key" in safe_config["llm_api"]:
+                del safe_config["llm_api"]["api_key"]
+            save_benchmark_results(metrics, output_path, safe_config)
 
             return 0
 
