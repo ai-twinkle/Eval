@@ -16,7 +16,9 @@ class CustomRegexExtractor(Extractor):
         super().__init__(config)
         if not self._config.get("patterns"):
             raise ValueError("CustomRegexExtractor 需要在 config 中提供 'patterns' 列表")
-        self.patterns: List[str] = self._config["patterns"]
+        self.patterns: List[str] = list(self._config["patterns"])
+        # 預先編譯正則，避免在逐題熱路徑中重複解析
+        self._compiled: List["re.Pattern[str]"] = [re.compile(p) for p in self.patterns]
 
     def get_name(self) -> str:
         return "custom_regex"
@@ -26,8 +28,8 @@ class CustomRegexExtractor(Extractor):
         if not self.validate_output(llm_output):
             return None
 
-        for pattern in self.patterns:
-            match = re.search(pattern, llm_output)
+        for pattern in self._compiled:
+            match = pattern.search(llm_output)
             if match:
                 return match.group(1).strip()
         return None
