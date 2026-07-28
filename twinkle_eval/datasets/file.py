@@ -310,17 +310,50 @@ def _download_single_subset(
     split: str,
     output_dir: Optional[str] = None,
 ) -> None:
-    """下載單一子集的輔助函數，使用 HuggingFace 原始快取格式。"""
-    from datasets import load_dataset
+    """下載單一子集的輔助函數，使用 HuggingFace 原始快取格式。
+
+    若指定的 split 不存在（例如 split 以考試名稱而非 test/train 命名的資料集），
+    會回退為下載該子集的**所有** splits，並以 split 名稱分別存檔，避免整批失敗。
+    """
+    from datasets import get_dataset_split_names, load_dataset
+
+    dataset_dir = f"{output_dir}/{dataset_name.replace('/', '__')}"
 
     try:
-        hf_dataset = load_dataset(
-            dataset_name,
-            name=subset,
-            split=split,
-            trust_remote_code=False,
-        )
-        hf_dataset.to_parquet(f"{output_dir}/{dataset_name.replace('/', '__')}/{subset}.parquet")
+        available_splits = get_dataset_split_names(dataset_name, config_name=subset)
+    except Exception as e:
+        log_warning(f"無法取得 {dataset_name} ({subset}) 的 split 清單: {e}")
+        available_splits = [split]
+
+    try:
+        if split in available_splits:
+            # 既有行為：下載指定 split，以子集名稱存檔
+            hf_dataset = load_dataset(
+                dataset_name,
+                name=subset,
+                split=split,
+                trust_remote_code=False,
+            )
+            hf_dataset.to_parquet(f"{dataset_dir}/{subset}.parquet")
+        else:
+            log_warning(
+                f"split '{split}' 不存在於 {dataset_name} ({subset})，"
+                f"改為下載所有 splits: {available_splits}"
+            )
+            for actual_split in available_splits:
+                hf_dataset = load_dataset(
+                    dataset_name,
+                    name=subset,
+                    split=actual_split,
+                    trust_remote_code=False,
+                )
+                # subset 為 default 時直接以 split 命名，否則加上子集前綴避免衝突
+                if subset in (None, "default"):
+                    filename = f"{actual_split}.parquet"
+                else:
+                    filename = f"{subset}__{actual_split}.parquet"
+                hf_dataset.to_parquet(f"{dataset_dir}/{filename}")
+                log_info(f"已下載 split '{actual_split}' → {dataset_dir}/{filename}")
     except Exception as e:
         log_error(f"下載子集 {subset} 失敗: {e}")
         raise e
