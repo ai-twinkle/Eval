@@ -5,7 +5,7 @@ from datetime import datetime
 from typing import Any, Dict, List, Optional
 
 # 取得啟動時間
-start_time = datetime.now().strftime("%Y%m%d_%H%M")
+start_time = datetime.now().strftime("%Y%m%d_%H%M%S")
 
 logs_dir = "logs"
 
