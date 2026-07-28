@@ -17,6 +17,7 @@ import json
 import os
 import re
 import sqlite3
+import time
 from typing import Any, Dict, List, Optional, Set, Tuple
 
 from twinkle_eval.core.abc import Scorer
@@ -60,9 +61,7 @@ def _parse_gold(gold: Any) -> Tuple[str, Optional[str]]:
     return text, None
 
 
-def execute_sql(
-    db_path: str, sql: str, timeout: int = 30
-) -> Optional[List[Tuple[Any, ...]]]:
+def execute_sql(db_path: str, sql: str, timeout: int = 30) -> Optional[List[Tuple[Any, ...]]]:
     """對 SQLite 資料庫執行 SQL，回傳結果集。
 
     Returns:
@@ -70,20 +69,27 @@ def execute_sql(
     """
     if not os.path.isfile(db_path):
         return None
+    conn: Optional[sqlite3.Connection] = None
     try:
-        conn = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)
+        conn = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True, timeout=timeout)
         conn.execute("PRAGMA query_only = ON")
+        # 以 progress handler 實作查詢逾時：超過 deadline 即中止查詢
+        # （sqlite3.connect 的 timeout 參數只處理鎖競爭，管不到長時間查詢）
+        deadline = time.monotonic() + timeout
+        conn.set_progress_handler(lambda: 1 if time.monotonic() > deadline else 0, 100_000)
         cursor = conn.cursor()
         cursor.execute(sql)
         results = cursor.fetchall()
-        conn.close()
         return results
-    except (sqlite3.Error, Exception):
-        try:
-            conn.close()
-        except Exception:
-            pass
+    except sqlite3.Error:
+        # SQL 執行失敗（語法錯誤、逾時中止等）視為無結果，由呼叫端評為不正確
         return None
+    finally:
+        if conn is not None:
+            try:
+                conn.close()
+            except sqlite3.Error:
+                pass
 
 
 def result_sets_match(
