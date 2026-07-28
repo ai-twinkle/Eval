@@ -684,6 +684,8 @@ results/
 | `--list-exporters` | 列出可用的輸出格式 |
 | `--benchmark` | 執行 LLM 效能基準測試 |
 | `--download-dataset` | 從 HuggingFace Hub 下載資料集 |
+| `--convert-to-html JSON_FILE` | 將 JSON 結果檔轉換為 HTML 報表 |
+| `--convert-to-excel JSONL_FILE` | 將逐題結果 JSONL 轉換為 Excel（需 `twinkle-eval[excel]`） |
 
 ### 設定檔範本管理
 
