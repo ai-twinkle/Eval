@@ -14,7 +14,6 @@ from typing import Any, Dict, List, Optional
 
 from .core.logger import log_error, log_info, log_warning
 
-
 # ---------------------------------------------------------------------------
 # Benchmark Registry
 # ---------------------------------------------------------------------------
@@ -359,7 +358,7 @@ def _download_hf_benchmark(
     skipped_gated: list[str],
 ) -> None:
     """下載 HuggingFace 資料集到 datasets/{name}/。"""
-    from datasets import get_dataset_config_names, load_dataset
+    from datasets import get_dataset_config_names
 
     hf_id = info["hf_id"]
     split = info.get("split", "test")
@@ -618,7 +617,8 @@ def _download_longbench(url: str, dest: str) -> None:
         with zf.open(matched[0]) as src, open(output_path, "wb") as dst:
             dst.write(src.read())
 
-    line_count = sum(1 for _ in open(output_path, "r", encoding="utf-8"))
+    with open(output_path, "r", encoding="utf-8") as f:
+        line_count = sum(1 for _ in f)
     log_info(f"  完成：{line_count} 筆 → {output_path}")
 
 
