@@ -5,12 +5,8 @@ Twinkle Eval 命令列介面
 提供 twinkle-eval 命令列工具的入口點，支援各種評測功能和配置選項。
 """
 
-import os
 import sys
 from typing import List, Optional
-
-# 確保能夠正確匯入模組
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from .metrics import get_available_methods
 from .core.logger import log_error
