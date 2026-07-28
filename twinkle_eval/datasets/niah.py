@@ -70,7 +70,7 @@ def _insert_needle(
     needle_pos = int(context_length_chars * depth_percent)
 
     before = haystack[:needle_pos]
-    after = haystack[needle_pos : context_length_chars]
+    after = haystack[needle_pos:context_length_chars]
 
     return before + "\n" + needle + "\n" + after
 
@@ -143,8 +143,5 @@ def generate_niah_dataset(
             f.write(json.dumps(row, ensure_ascii=False) + "\n")
 
     file_size = os.path.getsize(output_path)
-    log_info(
-        f"已生成 {len(rows)} 筆 NIAH 測試案例 → {output_path} "
-        f"({file_size / 1024:.1f} KB)"
-    )
+    log_info(f"已生成 {len(rows)} 筆 NIAH 測試案例 → {output_path} " f"({file_size / 1024:.1f} KB)")
     return output_path

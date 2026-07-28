@@ -92,7 +92,9 @@ class OpenAIModel(LLM):
         if messages is not None:
             built_messages = messages
         else:
-            built_messages = self._build_messages(question_text, prompt_lang, eval_method, system_prompt_enabled)
+            built_messages = self._build_messages(
+                question_text, prompt_lang, eval_method, system_prompt_enabled
+            )
         model_config = self.config["model"]
         overrides = model_overrides or {}
 

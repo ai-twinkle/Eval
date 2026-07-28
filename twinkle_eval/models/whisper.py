@@ -86,9 +86,7 @@ class WhisperModel(LLM):
 
         model_name = self.config["model"]["name"]
         overrides = model_overrides or {}
-        temperature = overrides.get(
-            "temperature", self.config["model"].get("temperature", 0.0)
-        )
+        temperature = overrides.get("temperature", self.config["model"].get("temperature", 0.0))
 
         # 呼叫 Whisper API
         with open(audio_path, "rb") as audio_file:

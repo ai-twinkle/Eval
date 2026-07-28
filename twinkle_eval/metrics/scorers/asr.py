@@ -12,15 +12,14 @@ from typing import Any, Dict, List, Optional
 
 from twinkle_eval.core.abc import Scorer
 
-
 # CJK Unicode 範圍（用於判斷是否為 CJK 字元）
 _CJK_RANGES = [
-    (0x4E00, 0x9FFF),    # CJK Unified Ideographs
-    (0x3400, 0x4DBF),    # CJK Unified Ideographs Extension A
+    (0x4E00, 0x9FFF),  # CJK Unified Ideographs
+    (0x3400, 0x4DBF),  # CJK Unified Ideographs Extension A
     (0x20000, 0x2A6DF),  # CJK Unified Ideographs Extension B
-    (0xF900, 0xFAFF),    # CJK Compatibility Ideographs
+    (0xF900, 0xFAFF),  # CJK Compatibility Ideographs
     (0x2F800, 0x2FA1F),  # CJK Compatibility Ideographs Supplement
-    (0x3000, 0x303F),    # CJK Symbols and Punctuation
+    (0x3000, 0x303F),  # CJK Symbols and Punctuation
 ]
 
 # 使用 CER 的語言（ISO 639-1）
@@ -115,10 +114,7 @@ class ASRScorer(Scorer):
 
         if self._remove_punctuation:
             # 移除所有 Unicode 標點類別字元（P 類）
-            text = "".join(
-                ch for ch in text
-                if not unicodedata.category(ch).startswith("P")
-            )
+            text = "".join(ch for ch in text if not unicodedata.category(ch).startswith("P"))
 
         # 壓縮空白
         text = re.sub(r"\s+", " ", text).strip()
@@ -150,9 +146,7 @@ class ASRScorer(Scorer):
         try:
             import jiwer
         except ImportError:
-            raise ImportError(
-                "ASR 評測需要 jiwer 套件。請安裝：pip install twinkle-eval[asr]"
-            )
+            raise ImportError("ASR 評測需要 jiwer 套件。請安裝：pip install twinkle-eval[asr]")
 
         pred_norm = self.normalize(predicted)
         gold_norm = self.normalize(gold)

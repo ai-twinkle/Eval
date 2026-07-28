@@ -4,31 +4,31 @@ from typing import Any, Dict, List, Optional, Tuple, Type
 
 from twinkle_eval.core.abc import Extractor, Scorer
 
+from .extractors.asr import ASRExtractor
 from .extractors.bfcl_prompt import BFCLPromptExtractor
 from .extractors.box import BoxExtractor
 from .extractors.custom import CustomRegexExtractor
+from .extractors.ifbench import IFBenchExtractor
+from .extractors.ifeval import IFEvalExtractor
 from .extractors.logit import LogitExtractor
 from .extractors.math import MathExtractor
+from .extractors.niah import NIAHExtractor
 from .extractors.pattern import PatternExtractor
+from .extractors.ragas import RAGASExtractor
+from .extractors.regex_match import RegexMatchExtractor
+from .extractors.text2sql import Text2SQLExtractor
 from .extractors.tool_call import ToolCallExtractor
-from .extractors.ifeval import IFEvalExtractor
-from .extractors.ifbench import IFBenchExtractor
+from .extractors.vision_mcq import VisionMCQExtractor
+from .scorers.asr import ASRScorer
 from .scorers.bfcl import BFCLScorer
 from .scorers.exact import ExactMatchScorer
-from .scorers.math import MathRulerScorer
-from .scorers.ifeval import IFEvalScorer
 from .scorers.ifbench import IFBenchScorer
-from .extractors.niah import NIAHExtractor
+from .scorers.ifeval import IFEvalScorer
+from .scorers.math import MathRulerScorer
 from .scorers.niah import NIAHScorer
-from .extractors.ragas import RAGASExtractor
 from .scorers.ragas import RAGASScorer
-from .extractors.text2sql import Text2SQLExtractor
-from .extractors.regex_match import RegexMatchExtractor
-from .scorers.text2sql import Text2SQLScorer
 from .scorers.string_match import StringMatchScorer
-from .extractors.asr import ASRExtractor
-from .scorers.asr import ASRScorer
-from .extractors.vision_mcq import VisionMCQExtractor
+from .scorers.text2sql import Text2SQLScorer
 
 # Preset：evaluation_method 字串 → (Extractor 類別, Scorer 類別)
 PRESETS: Dict[str, Tuple[Type[Extractor], Type[Scorer]]] = {
@@ -68,9 +68,7 @@ def create_metric_pair(
     """
     if evaluation_method not in PRESETS:
         available = ", ".join(sorted(PRESETS))
-        raise KeyError(
-            f"evaluation_method '{evaluation_method}' 不存在。可用方法: {available}"
-        )
+        raise KeyError(f"evaluation_method '{evaluation_method}' 不存在。可用方法: {available}")
     extractor_cls, scorer_cls = PRESETS[evaluation_method]
     cfg = config or {}
     return extractor_cls(cfg), scorer_cls(cfg)

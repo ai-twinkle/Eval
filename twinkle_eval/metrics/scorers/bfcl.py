@@ -6,7 +6,6 @@ from typing import Any, Dict, List, Optional
 
 from twinkle_eval.core.abc import Scorer
 
-
 # ── 值比對工具 ──────────────────────────────────────────────────────────────────
 
 

@@ -5,9 +5,9 @@ import yaml
 
 from twinkle_eval.core.exceptions import ConfigurationError, ValidationError
 from twinkle_eval.core.logger import log_error, log_info
+from twinkle_eval.core.validators import ConfigValidator, DatasetValidator
 from twinkle_eval.metrics import create_metric_pair, get_available_methods
 from twinkle_eval.models import LLMFactory
-from twinkle_eval.core.validators import ConfigValidator, DatasetValidator
 
 
 class ConfigurationManager:
