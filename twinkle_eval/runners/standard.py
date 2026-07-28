@@ -49,19 +49,23 @@ class TwinkleEvalRunner:
         if self.config is None:
             raise ConfigurationError("配置未載入")
 
-        if "llm_instance" in self.config:
-            del self.config["llm_instance"]
-
-        save_config = copy.deepcopy(self.config)
+        # 排除物件實例（不可序列化）後再複製，避免就地修改 self.config
+        # 導致同一個 runner 無法重複執行
+        config_without_instances = {
+            k: v
+            for k, v in self.config.items()
+            if k
+            not in (
+                "llm_instance",
+                "evaluation_strategy_instance",
+                "extractor_instance",
+                "scorer_instance",
+            )
+        }
+        save_config = copy.deepcopy(config_without_instances)
 
         if "llm_api" in save_config and "api_key" in save_config["llm_api"]:
             del save_config["llm_api"]["api_key"]
-        if "evaluation_strategy_instance" in save_config:
-            del save_config["evaluation_strategy_instance"]
-        # 新架構：移除 extractor_instance / scorer_instance
-        for key in ("extractor_instance", "scorer_instance"):
-            if key in save_config:
-                del save_config[key]
 
         return save_config
 
@@ -114,7 +118,13 @@ class TwinkleEvalRunner:
             ):
                 if key in cfg:
                     settings[key] = cfg[key]
-            for mk in ("temperature", "top_p", "max_tokens", "frequency_penalty", "presence_penalty"):
+            for mk in (
+                "temperature",
+                "top_p",
+                "max_tokens",
+                "frequency_penalty",
+                "presence_penalty",
+            ):
                 if mk in cfg:
                     settings["model_overrides"][mk] = cfg[mk]
 
@@ -259,7 +269,8 @@ class TwinkleEvalRunner:
                 )
 
                 dataset_result = self._evaluate_dataset(
-                    dataset_path, evaluator,
+                    dataset_path,
+                    evaluator,
                     repeat_runs=ds["repeat_runs"],
                     pass_k=ds["pass_k"],
                 )
@@ -320,9 +331,7 @@ class TwinkleEvalRunner:
         log_info(f"評測完成，結果已匯出至: {', '.join(exported_files)}")
         return exported_files[0] if exported_files else ""
 
-    def _handle_google_services(
-        self, results: Dict[str, Any], export_formats: List[str]
-    ) -> None:
+    def _handle_google_services(self, results: Dict[str, Any], export_formats: List[str]) -> None:
         """處理 Google 服務整合。"""
         if self.config is None:
             return
