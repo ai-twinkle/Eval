@@ -250,7 +250,7 @@ def create_cli_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--validate",
         action="store_true",
-        help="僅驗證設定檔格式與資料集格式是否正確",
+        help="驗證設定檔與資料集格式，並對 API 端點做一次試打確認可連線",
     )
 
     parser.add_argument(
@@ -496,7 +496,28 @@ def _handle_validate(config_path: str) -> int:
         except Exception as e:
             errors.append(f"資料集 {ds_path}：{e}")
 
-    # 4. 結果
+    # 4. 對 API 端點做一次試打，及早發現連線 / 金鑰 / 模型名稱錯誤
+    if not errors:
+        try:
+            live_config = load_config(config_path)
+            llm_type = live_config["llm_api"].get("type", "openai")
+            if llm_type == "whisper":
+                # whisper 後端的 call() 需要真實音檔，無法以文字試打
+                print("⏭️  whisper 後端不支援文字試打，略過 API 連線測試")
+            else:
+                llm_instance = live_config["llm_instance"]
+                # max_tokens 至少 16：Responses API 的 max_output_tokens 下限為 16
+                response = llm_instance.call(
+                    "ping",
+                    system_prompt_enabled=False,
+                    model_overrides={"max_tokens": 16},
+                )
+                model_name = getattr(response, "model", "") or live_config["model"]["name"]
+                print(f"✅ API 端點試打成功（模型: {model_name}）")
+        except Exception as e:
+            errors.append(f"API 端點試打失敗：{e}")
+
+    # 5. 結果
     if errors:
         print()
         for err in errors:

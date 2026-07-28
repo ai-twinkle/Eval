@@ -675,7 +675,7 @@ results/
 |------|------|
 | `--config`, `-c` | 指定設定檔路徑（預設 `config.yaml`） |
 | `--init [TEMPLATE]` | 產生設定檔範本。不帶參數列出所有可用範本，`--init <name>` 產生單一範本，`--init all` 產生全部 |
-| `--validate` | 僅驗證設定檔與資料集格式是否正確（不呼叫 API） |
+| `--validate` | 驗證設定檔與資料集格式，並對 API 端點做一次試打確認可連線 |
 | `--dry-run` | 載入設定檔與資料集，顯示評測計畫但不呼叫 API |
 | `--resume TIMESTAMP` | 從指定時間戳記的中斷點繼續評測（跳過已完成的題目） |
 | `--export` | 輸出格式（json / csv / html / google_sheets） |
