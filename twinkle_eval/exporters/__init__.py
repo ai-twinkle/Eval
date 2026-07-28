@@ -3,9 +3,8 @@
 import csv
 import json
 import os
+from html import escape as html_escape
 from typing import Any, Dict, List, Optional, Type
-
-import pandas as pd
 
 from twinkle_eval.core.abc import ResultsExporter
 
@@ -125,6 +124,9 @@ class ExcelExporter(ResultsExporter):
         return ".xlsx"
 
     def export(self, results: Dict[str, Any], output_path: str) -> str:
+        # pandas 僅在實際匯出 Excel 時載入，避免拖慢一般評測的啟動時間
+        import pandas as pd
+
         if not output_path.endswith(self.get_file_extension()):
             output_path += self.get_file_extension()
 
@@ -420,7 +422,7 @@ class HTMLExporter(ResultsExporter):
             <div class="stat-label">錯誤題數</div>
         </div>
         <div class="stat-item">
-            <div class="stat-number" style="color: #007bff;">{sum(d.get('usage_total_tokens', 0) for d in details):,}</div>
+            <div class="stat-number" style="color: #007bff;">{sum(d.get('usage_total_tokens') or 0 for d in details):,}</div>
             <div class="stat-label">總 Token 使用量</div>
         </div>
     </div>
@@ -441,14 +443,15 @@ class HTMLExporter(ResultsExporter):
 
             for i, detail in enumerate(correct_details, 1):
                 question_id = detail.get("question_id", i)
-                question = detail.get("question", "")
-                correct_answer = detail.get("correct_answer", "")
-                predicted_answer = detail.get("predicted_answer", "")
-                llm_output = detail.get("llm_output", "")
-                reasoning = detail.get("llm_resoning_output", "")
-                usage_completion = detail.get("usage_completion_tokens", 0)
-                usage_prompt = detail.get("usage_prompt_tokens", 0)
-                usage_total = detail.get("usage_total_tokens", 0)
+                # 內容一律經過 HTML escape，避免模型輸出中的標籤破壞或注入報表
+                question = html_escape(str(detail.get("question") or ""))
+                correct_answer = html_escape(str(detail.get("correct_answer") or ""))
+                predicted_answer = html_escape(str(detail.get("predicted_answer") or ""))
+                llm_output = html_escape(str(detail.get("llm_output") or ""))
+                reasoning = html_escape(str(detail.get("llm_reasoning_output") or ""))
+                usage_completion = detail.get("usage_completion_tokens") or 0
+                usage_prompt = detail.get("usage_prompt_tokens") or 0
+                usage_total = detail.get("usage_total_tokens") or 0
 
                 html += f"""
             <div class="question-item correct">
@@ -486,14 +489,15 @@ class HTMLExporter(ResultsExporter):
 
             for i, detail in enumerate(incorrect_details, 1):
                 question_id = detail.get("question_id", i)
-                question = detail.get("question", "")
-                correct_answer = detail.get("correct_answer", "")
-                predicted_answer = detail.get("predicted_answer", "")
-                llm_output = detail.get("llm_output", "")
-                reasoning = detail.get("llm_resoning_output", "")
-                usage_completion = detail.get("usage_completion_tokens", 0)
-                usage_prompt = detail.get("usage_prompt_tokens", 0)
-                usage_total = detail.get("usage_total_tokens", 0)
+                # 內容一律經過 HTML escape，避免模型輸出中的標籤破壞或注入報表
+                question = html_escape(str(detail.get("question") or ""))
+                correct_answer = html_escape(str(detail.get("correct_answer") or ""))
+                predicted_answer = html_escape(str(detail.get("predicted_answer") or ""))
+                llm_output = html_escape(str(detail.get("llm_output") or ""))
+                reasoning = html_escape(str(detail.get("llm_reasoning_output") or ""))
+                usage_completion = detail.get("usage_completion_tokens") or 0
+                usage_prompt = detail.get("usage_prompt_tokens") or 0
+                usage_total = detail.get("usage_total_tokens") or 0
 
                 html += f"""
             <div class="question-item incorrect">
@@ -661,9 +665,7 @@ class ResultsExporterFactory:
         """依類型名稱建立輸出器實例。"""
         if exporter_type not in cls._registry:
             available_types = ", ".join(cls._registry.keys())
-            raise ValueError(
-                f"不支援的輸出格式: {exporter_type}. 可用格式: {available_types}"
-            )
+            raise ValueError(f"不支援的輸出格式: {exporter_type}. 可用格式: {available_types}")
 
         # 延遲載入 Google Sheets exporter 以避免循環匯入
         if exporter_type == "google_sheets" and cls._registry[exporter_type] is None:
