@@ -1,4 +1,5 @@
 llm_api:
+  type: "openai"                                       # LLM 後端（openai | openai_responses | whisper）
   base_url: "http://your-openai-compatible-server/v1"  # API 伺服器網址
   api_key: "your-api-key"                              # API 金鑰
   disable_ssl_verify: false                            # 是否停用 SSL 驗證
