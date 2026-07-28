@@ -6,17 +6,17 @@
 
 import json
 import os
+import re
 import string
 from pathlib import Path
 from typing import Dict, Optional
 
-import pandas as pd
-import pyarrow as pa
 from tqdm import tqdm
 
-from datasets import get_dataset_config_names, get_dataset_split_names, load_dataset
-
 from twinkle_eval.core.logger import log_error, log_info, log_warning
+
+#: 選項字母型答案（1–2 個英文字母，如 A、B、AA）
+_OPTION_LETTER_RE = re.compile(r"^[A-Za-z]{1,2}$")
 
 
 def _index_to_label(idx: int) -> str:
@@ -79,6 +79,21 @@ def _normalize_record(record: dict) -> dict:
     return normalized
 
 
+def _normalize_answer(record: dict) -> dict:
+    """統一所有檔案格式的 answer 正規化行為。
+
+    僅當答案（1–2 個英文字母）轉大寫後對應到題目中實際存在的選項鍵時，
+    才視為選項字母答案並正規化（去空白、轉大寫）。其餘答案（數學、SQL、
+    逐字稿、Yes/No 類的 "No" 等）保持原樣，避免大小寫轉換破壞答案內容。
+    """
+    answer = record.get("answer")
+    if isinstance(answer, str):
+        stripped = answer.strip()
+        if _OPTION_LETTER_RE.match(stripped) and stripped.upper() in record:
+            record["answer"] = stripped.upper()
+    return record
+
+
 class Dataset:
     """資料集類別 - 負責載入和管理單一資料集檔案
 
@@ -116,30 +131,37 @@ class Dataset:
                 with open(self.file_path, "r", encoding="utf-8") as f:
                     data = [json.loads(line) for line in f]
             elif ext in [".parquet", ".arrow"]:
+                import pandas as pd
+
                 if ext == ".parquet":
                     df = pd.read_parquet(self.file_path)
                 else:
+                    import pyarrow as pa
+
                     table = pa.ipc.open_file(self.file_path).read_all()
                     df = table.to_pandas()
                 if "question" not in df.columns:
                     raise ValueError(f"資料格式錯誤，檔案 `{self.file_path}` 缺少 `question` 欄位")
                 if "answer" not in df.columns:
                     raise ValueError(f"資料格式錯誤，檔案 `{self.file_path}` 缺少 `answer` 欄位")
-                df["answer"] = df["answer"].astype(str).str.strip().str.upper()
+                df["answer"] = df["answer"].astype(str)
                 data = df.to_dict(orient="records")
             elif ext in [".csv", ".tsv"]:
+                import pandas as pd
+
                 sep = "," if ext == ".csv" else "\t"
                 df = pd.read_csv(self.file_path, sep=sep)
                 if "question" not in df.columns:
                     raise ValueError(f"資料格式錯誤，檔案 `{self.file_path}` 缺少 `question` 欄位")
                 if "answer" not in df.columns:
                     raise ValueError(f"資料格式錯誤，檔案 `{self.file_path}` 缺少 `answer` 欄位")
-                df["answer"] = df["answer"].astype(str).str.strip().str.upper()
+                df["answer"] = df["answer"].astype(str)
                 data = df.to_dict(orient="records")
             else:
                 raise ValueError(f"不支援的檔案格式: {ext}")
 
-            data = [_normalize_record(r) for r in data]
+            # 所有格式統一經過 choices 展開與答案正規化，確保不同格式評分一致
+            data = [_normalize_answer(_normalize_record(r)) for r in data]
             if self.node_id is not None and self.rank is not None:
                 log_info(
                     f"[節點 {self.node_id} | Rank {self.rank}] 成功讀取: {self.file_path}，共 {len(data)} 題"
@@ -178,11 +200,27 @@ def find_all_evaluation_files(dataset_root: str) -> list:
     # 看到「這些檔案被視為附帶資源略過」的訊息，又不會被淹沒。
     multimodal_resource_extensions = {
         # 圖片
-        ".jpg", ".jpeg", ".png", ".gif", ".bmp", ".webp", ".tiff", ".tif",
+        ".jpg",
+        ".jpeg",
+        ".png",
+        ".gif",
+        ".bmp",
+        ".webp",
+        ".tiff",
+        ".tif",
         # 音檔
-        ".wav", ".mp3", ".flac", ".m4a", ".ogg", ".opus", ".aac",
+        ".wav",
+        ".mp3",
+        ".flac",
+        ".m4a",
+        ".ogg",
+        ".opus",
+        ".aac",
         # 影片
-        ".mp4", ".mov", ".avi", ".mkv",
+        ".mp4",
+        ".mov",
+        ".avi",
+        ".mkv",
     }
     all_files = []
     skipped_resources: Dict[str, int] = {}
@@ -229,6 +267,8 @@ def download_huggingface_dataset(
     Returns:
         str: 下載後的目錄路徑
     """
+    from datasets import get_dataset_config_names
+
     output_path = Path(output_dir)
     output_path.mkdir(parents=True, exist_ok=True)
 
@@ -271,6 +311,8 @@ def _download_single_subset(
     output_dir: Optional[str] = None,
 ) -> None:
     """下載單一子集的輔助函數，使用 HuggingFace 原始快取格式。"""
+    from datasets import load_dataset
+
     try:
         hf_dataset = load_dataset(
             dataset_name,
@@ -294,6 +336,8 @@ def list_huggingface_dataset_info(dataset_name: str, subset: Optional[str] = Non
     Returns:
         dict: 資料集資訊，包含可用的分割、特徵等
     """
+    from datasets import get_dataset_config_names, get_dataset_split_names
+
     try:
         configs = get_dataset_config_names(dataset_name)
 
