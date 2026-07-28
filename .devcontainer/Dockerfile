@@ -1,4 +1,4 @@
-FROM harbor.apmic.ai/library/python311
+FROM harbor.apmic.ai/proxy/py311node22:latest
 
 # install uv, but not use by default
 COPY --from=ghcr.io/astral-sh/uv:latest /uv /uvx /usr/local/bin/
