@@ -9,13 +9,17 @@ import numpy as np
 from twinkle_eval.exporters import ResultsExporterFactory
 
 
-def finalize_results(timestamp: str, hf_repo_id: Optional[str] = None, hf_variant: Optional[str] = "default") -> int:
+def finalize_results(
+    timestamp: str, hf_repo_id: Optional[str] = None, hf_variant: Optional[str] = "default"
+) -> int:
     """合併平行運算產生的碎片並重新計算評測指標，最後刪除碎片。
     若無碎片但存在單節點最終結果，則直接執行上傳。
     """
 
     results_dir = "results"
-    json_shards = sorted(glob.glob(os.path.join(results_dir, f"results_{timestamp}_node*_rank*.json")))
+    json_shards = sorted(
+        glob.glob(os.path.join(results_dir, f"results_{timestamp}_node*_rank*.json"))
+    )
 
     if not json_shards:
         # 單節點執行：直接上傳已存在的最終結果，無須合併
@@ -28,6 +32,7 @@ def finalize_results(timestamp: str, hf_repo_id: Optional[str] = None, hf_varian
         if hf_repo_id:
             try:
                 from twinkle_eval.integrations.huggingface import upload_results
+
                 with open(single_node_result, "r", encoding="utf-8") as _f:
                     _result = json.load(_f)
                 model_name = _result.get("config", {}).get("model", {}).get("name", "unknown_model")
@@ -143,18 +148,24 @@ def finalize_results(timestamp: str, hf_repo_id: Optional[str] = None, hf_varian
                 mean_acc = float(np.mean(run_accuracies)) if run_accuracies else 0.0
                 std_acc = float(np.std(run_accuracies)) if len(run_accuracies) > 1 else 0.0
 
-                ds_results.append({
-                    "file": file_path,
-                    "accuracy_mean": mean_acc,
-                    "accuracy_std": std_acc,
-                    "individual_runs": {
-                        "accuracies": run_accuracies,
-                        "results": run_merged_jsonl_paths,
-                    },
-                })
+                ds_results.append(
+                    {
+                        "file": file_path,
+                        "accuracy_mean": mean_acc,
+                        "accuracy_std": std_acc,
+                        "individual_runs": {
+                            "accuracies": run_accuracies,
+                            "results": run_merged_jsonl_paths,
+                        },
+                    }
+                )
 
-            ds_avg_acc = float(np.mean([r["accuracy_mean"] for r in ds_results])) if ds_results else 0.0
-            ds_avg_std = float(np.mean([r["accuracy_std"] for r in ds_results])) if ds_results else 0.0
+            ds_avg_acc = (
+                float(np.mean([r["accuracy_mean"] for r in ds_results])) if ds_results else 0.0
+            )
+            ds_avg_std = (
+                float(np.mean([r["accuracy_std"] for r in ds_results])) if ds_results else 0.0
+            )
 
             merged_dataset_results[ds_name] = {
                 "results": ds_results,
@@ -181,17 +192,22 @@ def finalize_results(timestamp: str, hf_repo_id: Optional[str] = None, hf_varian
         for sp in json_shards:
             try:
                 os.remove(sp)
-            except OSError:
-                pass
+            except OSError as e:
+                print(f"⚠️  無法刪除碎片 {sp}: {e}")
+        # rank0 的分片檔名沒有 shard 後綴，可能與合併輸出同名，不得刪除
+        merged_abs = {os.path.abspath(p) for p in merged_jsonl_files}
         for jp in shard_jsonl_files:
+            if os.path.abspath(jp) in merged_abs:
+                continue
             try:
                 os.remove(jp)
-            except OSError:
-                pass
+            except OSError as e:
+                print(f"⚠️  無法刪除碎片 {jp}: {e}")
 
     if hf_repo_id:
         try:
             from twinkle_eval.integrations.huggingface import upload_results
+
             model_name = base_result["config"].get("model", {}).get("name", "unknown_model")
             upload_results(
                 repo_id=hf_repo_id,
