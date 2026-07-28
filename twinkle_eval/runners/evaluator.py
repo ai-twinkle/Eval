@@ -474,7 +474,10 @@ class Evaluator:
                 f.write(json.dumps(detail, ensure_ascii=False) + "\n")
 
         unparsed_rate = acc.total_unparsed / acc.total_samples if acc.total_samples else 0.0
-        print(f"✅ 評測完成，結果已追加至 {results_path}")
+        print(
+            f"✅ 評測完成，正確率: {accuracy:.1%} "
+            f"({acc.total_correct}/{acc.total_samples})，結果已追加至 {results_path}"
+        )
         if acc.total_unparsed > 0:
             print(f"⚠️  無法解析: {acc.total_unparsed}/{acc.total_samples} ({unparsed_rate:.1%})")
         if acc.total_failed > 0:

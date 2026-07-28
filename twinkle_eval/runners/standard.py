@@ -343,6 +343,17 @@ class TwinkleEvalRunner:
                 print(message)
                 log_info(message)
 
+                # 多資料集評測時，每完成一個就顯示累計成績，方便長時間評測中掌握進度
+                if len(dataset_paths) > 1:
+                    print(
+                        f"📊 累計成績（{len(dataset_results)}/{len(dataset_paths)} 個資料集完成）:"
+                    )
+                    for done_path, done_result in dataset_results.items():
+                        print(
+                            f"  {done_path}: {done_result['average_accuracy']:.2%} "
+                            f"(±{done_result['average_std']:.2%})"
+                        )
+
             except ImportError as e:
                 msg = f"\n❌ 資料集 {dataset_path} 評測失敗：缺少必要套件。\n   {e}\n"
                 print(msg)
