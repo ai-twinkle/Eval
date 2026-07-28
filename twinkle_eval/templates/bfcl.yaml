@@ -3,6 +3,7 @@ llm_api:
   api_key: "your-api-key"                             # API 金鑰
   disable_ssl_verify: false                           # 是否停用 SSL 驗證
   api_rate_limit: 2                                   # 每秒請求限制（-1 為不限制）
+  max_workers: null                                    # 並行請求執行緒數（null 使用系統預設）
   max_retries: 5                                      # API 呼叫失敗時的重試次數
   timeout: 600                                        # API 呼叫的超時時間 (秒)
 

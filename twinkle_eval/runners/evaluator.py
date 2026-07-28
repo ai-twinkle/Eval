@@ -1,19 +1,26 @@
+import inspect
 import json
 import os
 import random
-import re
+import string
 import time
-from math import comb
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from math import comb
 from typing import Any, Dict, Optional, Tuple
 
 from tqdm import tqdm
 
-from twinkle_eval.datasets import Dataset
 from twinkle_eval.core.abc import Extractor, Scorer
 from twinkle_eval.core.logger import log_error
-from twinkle_eval.metrics.extractors.tool_call import ToolCallExtractor, convert_bfcl_functions_to_tools
-from twinkle_eval.metrics.extractors.bfcl_prompt import BFCLPromptExtractor, inject_bfcl_system_prompt
+from twinkle_eval.datasets import Dataset
+from twinkle_eval.metrics.extractors.bfcl_prompt import (
+    BFCLPromptExtractor,
+    inject_bfcl_system_prompt,
+)
+from twinkle_eval.metrics.extractors.tool_call import (
+    ToolCallExtractor,
+    convert_bfcl_functions_to_tools,
+)
 from twinkle_eval.models import LLM
 
 
@@ -21,6 +28,21 @@ def _get_node_id() -> str:
     """取得當前節點識別碼，優先使用 SLURM_NODEID，否則回退至 node0。"""
     slurm_node = os.environ.get("SLURM_NODEID")
     return slurm_node if slurm_node is not None else "0"
+
+
+def _excel_label(idx: int) -> str:
+    """將 0-based 索引轉換為 Excel 風格的大寫字母標籤（A…Z、AA…AZ、BA…）。
+
+    與 datasets 模組的 choices 展開邏輯一致。
+    """
+    letters = []
+    while True:
+        idx, rem = divmod(idx, 26)
+        letters.append(string.ascii_uppercase[rem])
+        if idx == 0:
+            break
+        idx -= 1
+    return "".join(reversed(letters))
 
 
 _THINK_TAG_PAIRS = [
@@ -38,7 +60,7 @@ def _strip_think_blocks(text: str) -> str:
     for start_tag, end_tag in _THINK_TAG_PAIRS:
         if start_tag in lower and end_tag in lower:
             idx = lower.rfind(end_tag)
-            return text[idx + len(end_tag):].strip()
+            return text[idx + len(end_tag) :].strip()
     return text
 
 
@@ -119,8 +141,9 @@ def _encode_image_to_data_uri(
 
     if max_image_size:
         try:
-            from PIL import Image  # type: ignore
             import io as _io
+
+            from PIL import Image  # type: ignore
 
             with Image.open(real_path) as img:
                 img.thumbnail((max_image_size, max_image_size))
@@ -135,7 +158,9 @@ def _encode_image_to_data_uri(
                 mime_subtype = _detect_image_mime(payload)
                 return f"data:image/{mime_subtype};base64,{b64}"
         except ImportError:
-            log_error("max_image_size 已設定但 Pillow 未安裝，跳過縮放。請執行 pip install twinkle-eval[vision]")
+            log_error(
+                "max_image_size 已設定但 Pillow 未安裝，跳過縮放。請執行 pip install twinkle-eval[vision]"
+            )
         except Exception as e:
             log_error(f"圖片縮放失敗 ({image_path}): {e}，回退為原始檔案編碼")
 
@@ -207,29 +232,72 @@ class Evaluator:
         self.pass_k = max(1, int(pass_k))
         self.shuffle_options = bool(shuffle_options)
         self.model_overrides = model_overrides or {}
+        # max_workers 未設定（null / 0 / 負值）時交由 ThreadPoolExecutor 使用預設值
+        max_workers = self.config["llm_api"].get("max_workers")
+        self._max_workers: Optional[int] = (
+            int(max_workers) if max_workers and int(max_workers) > 0 else None
+        )
+        # scorer.score_full 的簽名在整次評測中不變，於此一次解析避免逐題呼叫 inspect
+        self._score_full_accepts_prompt = hasattr(scorer, "score_full") and (
+            "prompt" in inspect.signature(scorer.score_full).parameters
+        )
+
+    @staticmethod
+    def _detect_option_keys(question_data: dict) -> list:
+        """動態偵測選項鍵（避免硬編碼 A/B/C/D）。
+
+        只接受從 A 開始、依 Excel 風格標籤（A…Z、AA、AB…）連續出現的鍵，
+        避免 ID、NO 之類的大寫 metadata 欄位被誤判為選項。
+        """
+        candidates = {
+            k for k in question_data if isinstance(k, str) and k.isupper() and len(k) <= 2
+        }
+        option_keys: list = []
+        idx = 0
+        while True:
+            label = _excel_label(idx)
+            if label not in candidates:
+                break
+            option_keys.append(label)
+            idx += 1
+        return option_keys
 
     def shuffle_question_options(self, question_data: dict) -> dict:
-        # 動態偵測選項鍵（避免硬編碼 A/B/C/D）
-        options = [(k, question_data[k]) for k in ["A", "B", "C", "D"] if k in question_data]
+        option_keys = self._detect_option_keys(question_data)
 
-        if not options:
+        if not option_keys:
             return question_data
 
-        correct_ans = question_data["answer"]
-        correct_option_text = question_data.get(correct_ans)
+        correct_ans = question_data.get("answer")
+        if correct_ans not in option_keys:
+            log_error("shuffle_options: 題目缺少 answer 欄位或 answer 不是選項鍵，跳過選項重排")
+            return question_data
 
-        random.shuffle(options)
+        shuffled_keys = option_keys[:]
+        random.shuffle(shuffled_keys)
 
-        new_data = {"question": question_data["question"]}
-
-        for (old_key, text), (new_key, _) in zip(
-            options, [("A", ""), ("B", ""), ("C", ""), ("D", "")]
-        ):
-            new_data[new_key] = text
-            if text == correct_option_text:
+        # 保留所有其他欄位（id、image_path 等），僅重排選項內容並同步更新答案
+        new_data = dict(question_data)
+        for new_key, old_key in zip(option_keys, shuffled_keys):
+            new_data[new_key] = question_data[old_key]
+            if old_key == correct_ans:
                 new_data["answer"] = new_key
 
         return new_data
+
+    def _compose_question_text(self, q: dict, option_keys: list, exclude: tuple = ()) -> str:
+        """組合題目文字。
+
+        MCQ 題（有選項鍵）只帶入選項內容，避免 id、subject 等 metadata 欄位
+        被當成選項渲染進 prompt；自由作答題（無選項鍵）保留除 question/answer
+        以外的所有欄位（如 text2sql 的 db_id、evidence 需要進入 prompt）。
+        """
+        if option_keys:
+            lines = [f"{k}: {q[k]}" for k in option_keys]
+        else:
+            excluded = {"question", "answer", *exclude}
+            lines = [f"{k}: {v}" for k, v in q.items() if k not in excluded]
+        return q["question"] + "\n" + "\n".join(lines)
 
     def evaluate_file(
         self, file_path: str, timestamp: str, prompt_lang: str = "zh"
@@ -239,10 +307,11 @@ class Evaluator:
         total_correct_samples = 0
         total_samples = 0
         total_unparsed = 0
+        total_failed = 0
         detailed_results = []
         question_stats: Dict[int, Dict[str, int]] = {}
 
-        with ThreadPoolExecutor() as executor:
+        with ThreadPoolExecutor(max_workers=self._max_workers) as executor:
             if self.extractor.uses_logprobs:
                 # ── logit 路徑 ──────────────────────────────────────────────
                 question_records = []
@@ -251,16 +320,8 @@ class Evaluator:
                     if self.shuffle_options:
                         q = self.shuffle_question_options(q)
 
-                    option_keys = sorted(
-                        [k for k in q if isinstance(k, str) and k.isupper() and len(k) <= 2]
-                    )
-                    question_text = (
-                        q["question"]
-                        + "\n"
-                        + "\n".join(
-                            [f"{k}: {v}" for k, v in q.items() if k not in ["question", "answer"]]
-                        )
-                    )
+                    option_keys = self._detect_option_keys(q)
+                    question_text = self._compose_question_text(q, option_keys)
                     logit_context = question_text + "\nAnswer:"
 
                     try:
@@ -278,13 +339,15 @@ class Evaluator:
                             f" {choice_key}",
                         )
 
-                    question_records.append({
-                        "idx": idx,
-                        "question_text": question_text,
-                        "correct_answer": correct_answer,
-                        "option_keys": option_keys,
-                        "choice_futures": choice_futures,
-                    })
+                    question_records.append(
+                        {
+                            "idx": idx,
+                            "question_text": question_text,
+                            "correct_answer": correct_answer,
+                            "option_keys": option_keys,
+                            "choice_futures": choice_futures,
+                        }
+                    )
 
                 for record in tqdm(question_records, desc="處理回應中"):
                     question_id = record["idx"]
@@ -292,9 +355,13 @@ class Evaluator:
                     correct_answer = record["correct_answer"]
                     option_keys = record["option_keys"]
 
-                    scores: Dict[str, float] = {
-                        k: f.result() for k, f in record["choice_futures"].items()
-                    }
+                    scores: Dict[str, float] = {}
+                    for k, f in record["choice_futures"].items():
+                        try:
+                            scores[k] = f.result()
+                        except Exception as e:
+                            log_error(f"問題 {question_id} 選項 {k} API 呼叫失敗: {e}")
+                            scores[k] = float("-inf")
 
                     if scores and any(v > float("-inf") for v in scores.values()):
                         predicted_raw = max(scores, key=scores.get)
@@ -318,20 +385,25 @@ class Evaluator:
                     question_stats[question_id]["total"] += 1
                     total_samples += 1
 
-                    detailed_results.append({
-                        "question_id": question_id,
-                        "sample_id": 0,
-                        "question": question_text,
-                        "correct_answer": correct_answer,
-                        "llm_output": None,
-                        "llm_reasoning_output": None,
-                        "predicted_answer": predicted_answer,
-                        "is_correct": is_correct,
-                        "logprob_scores": scores,
-                        "usage_completion_tokens": None,
-                        "usage_prompt_tokens": None,
-                        "usage_total_tokens": None,
-                    })
+                    detailed_results.append(
+                        {
+                            "question_id": question_id,
+                            "sample_id": 0,
+                            "question": question_text,
+                            "correct_answer": correct_answer,
+                            "llm_output": None,
+                            "llm_reasoning_output": None,
+                            "predicted_answer": predicted_answer,
+                            "is_correct": is_correct,
+                            # -inf 無法表示為合法 JSON（會輸出 -Infinity），改以 null 表示失敗選項
+                            "logprob_scores": {
+                                k: (None if v == float("-inf") else v) for k, v in scores.items()
+                            },
+                            "usage_completion_tokens": None,
+                            "usage_prompt_tokens": None,
+                            "usage_total_tokens": None,
+                        }
+                    )
 
             elif getattr(self.extractor, "uses_tool_calls", False):
                 # ── BFCL FC 路徑 ────────────────────────────────────────────
@@ -366,7 +438,15 @@ class Evaluator:
                 for future in tqdm(
                     as_completed(future_tasks), total=len(future_tasks), desc="處理回應中"
                 ):
-                    llm_chat_completion = future.result()
+                    try:
+                        llm_chat_completion = future.result()
+                    except Exception as e:
+                        # 單題在重試耗盡後仍失敗時跳過該題，避免整檔已完成的結果一併遺失
+                        log_error(
+                            f"問題 {future_to_data[future][2] + 1} API 呼叫失敗，跳過該題: {e}"
+                        )
+                        total_failed += 1
+                        continue
                     usage = llm_chat_completion.usage
                     question_text, correct_answer, question_id = future_to_data[future]
 
@@ -377,24 +457,29 @@ class Evaluator:
                         tool_calls = getattr(message, "tool_calls", None)
 
                         if tool_calls:
-                            extraction_source = json.dumps([
-                                {
-                                    "name": tc.function.name,
-                                    "arguments": json.loads(tc.function.arguments),
-                                }
-                                for tc in tool_calls
-                            ], ensure_ascii=False)
+                            extraction_source = json.dumps(
+                                [
+                                    {
+                                        "name": tc.function.name,
+                                        "arguments": json.loads(tc.function.arguments),
+                                    }
+                                    for tc in tool_calls
+                                ],
+                                ensure_ascii=False,
+                            )
                         else:
                             extraction_source = None
-                            log_error(f"問題 {question_id} 未回傳 tool_calls（finish_reason={choice.finish_reason}）")
+                            log_error(
+                                f"問題 {question_id} 未回傳 tool_calls（finish_reason={choice.finish_reason}）"
+                            )
 
                         predicted_raw = self.extractor.extract(extraction_source)
                         predicted_answer = (
-                            None if predicted_raw is None
-                            else self.scorer.normalize(predicted_raw)
+                            None if predicted_raw is None else self.scorer.normalize(predicted_raw)
                         )
                         is_correct = (
-                            False if predicted_answer is None
+                            False
+                            if predicted_answer is None
                             else self.scorer.score(predicted_answer, correct_answer)
                         )
 
@@ -407,21 +492,25 @@ class Evaluator:
                         question_stats[question_id]["total"] += 1
                         total_samples += 1
 
-                        detailed_results.append({
-                            "question_id": question_id,
-                            "sample_id": sample_id,
-                            "question": question_text,
-                            "correct_answer": correct_answer,
-                            "llm_output": json.dumps(
-                                [tc.function.name for tc in tool_calls] if tool_calls else [],
-                            ),
-                            "llm_reasoning_output": None,
-                            "predicted_answer": predicted_answer,
-                            "is_correct": is_correct,
-                            "usage_completion_tokens": usage.completion_tokens if usage else None,
-                            "usage_prompt_tokens": usage.prompt_tokens if usage else None,
-                            "usage_total_tokens": usage.total_tokens if usage else None,
-                        })
+                        detailed_results.append(
+                            {
+                                "question_id": question_id,
+                                "sample_id": sample_id,
+                                "question": question_text,
+                                "correct_answer": correct_answer,
+                                "llm_output": json.dumps(
+                                    [tc.function.name for tc in tool_calls] if tool_calls else [],
+                                ),
+                                "llm_reasoning_output": None,
+                                "predicted_answer": predicted_answer,
+                                "is_correct": is_correct,
+                                "usage_completion_tokens": (
+                                    usage.completion_tokens if usage else None
+                                ),
+                                "usage_prompt_tokens": usage.prompt_tokens if usage else None,
+                                "usage_total_tokens": usage.total_tokens if usage else None,
+                            }
+                        )
 
             elif getattr(self.extractor, "uses_prompt_injection", False):
                 # ── BFCL Prompting 路徑 ─────────────────────────────────────
@@ -456,7 +545,15 @@ class Evaluator:
                 for future in tqdm(
                     as_completed(future_tasks), total=len(future_tasks), desc="處理回應中"
                 ):
-                    llm_chat_completion = future.result()
+                    try:
+                        llm_chat_completion = future.result()
+                    except Exception as e:
+                        # 單題在重試耗盡後仍失敗時跳過該題，避免整檔已完成的結果一併遺失
+                        log_error(
+                            f"問題 {future_to_data[future][2] + 1} API 呼叫失敗，跳過該題: {e}"
+                        )
+                        total_failed += 1
+                        continue
                     usage = llm_chat_completion.usage
                     question_text, correct_answer, question_id = future_to_data[future]
 
@@ -474,11 +571,11 @@ class Evaluator:
 
                         predicted_raw = self.extractor.extract(extraction_source)
                         predicted_answer = (
-                            None if predicted_raw is None
-                            else self.scorer.normalize(predicted_raw)
+                            None if predicted_raw is None else self.scorer.normalize(predicted_raw)
                         )
                         is_correct = (
-                            False if predicted_answer is None
+                            False
+                            if predicted_answer is None
                             else self.scorer.score(predicted_answer, correct_answer)
                         )
 
@@ -491,19 +588,23 @@ class Evaluator:
                         question_stats[question_id]["total"] += 1
                         total_samples += 1
 
-                        detailed_results.append({
-                            "question_id": question_id,
-                            "sample_id": sample_id,
-                            "question": question_text,
-                            "correct_answer": correct_answer,
-                            "llm_output": content,
-                            "llm_reasoning_output": reasoning_content,
-                            "predicted_answer": predicted_answer,
-                            "is_correct": is_correct,
-                            "usage_completion_tokens": usage.completion_tokens if usage else None,
-                            "usage_prompt_tokens": usage.prompt_tokens if usage else None,
-                            "usage_total_tokens": usage.total_tokens if usage else None,
-                        })
+                        detailed_results.append(
+                            {
+                                "question_id": question_id,
+                                "sample_id": sample_id,
+                                "question": question_text,
+                                "correct_answer": correct_answer,
+                                "llm_output": content,
+                                "llm_reasoning_output": reasoning_content,
+                                "predicted_answer": predicted_answer,
+                                "is_correct": is_correct,
+                                "usage_completion_tokens": (
+                                    usage.completion_tokens if usage else None
+                                ),
+                                "usage_prompt_tokens": usage.prompt_tokens if usage else None,
+                                "usage_total_tokens": usage.total_tokens if usage else None,
+                            }
+                        )
 
             elif getattr(self.extractor, "uses_ifeval", False):
                 # ── IFEval / IFBench 路徑 ──────────────────────────────────
@@ -527,10 +628,13 @@ class Evaluator:
                         log_error(f"問題 {idx + 1} 資料格式錯誤: {e}")
                         continue
 
-                    ground_truth = json.dumps({
-                        "instruction_id_list": instruction_id_list,
-                        "kwargs": kwargs_list,
-                    }, ensure_ascii=False)
+                    ground_truth = json.dumps(
+                        {
+                            "instruction_id_list": instruction_id_list,
+                            "kwargs": kwargs_list,
+                        },
+                        ensure_ascii=False,
+                    )
 
                     self.rate_limiter.wait()
                     future = executor.submit(
@@ -543,7 +647,13 @@ class Evaluator:
                         self.model_overrides,
                     )
                     future_tasks.append(future)
-                    future_to_data[future] = (question_text, ground_truth, idx, instruction_id_list, kwargs_list)
+                    future_to_data[future] = (
+                        question_text,
+                        ground_truth,
+                        idx,
+                        instruction_id_list,
+                        kwargs_list,
+                    )
 
                 # 累積 instruction-level 統計（跨題目）
                 all_inst_strict: list = []
@@ -552,9 +662,19 @@ class Evaluator:
                 for future in tqdm(
                     as_completed(future_tasks), total=len(future_tasks), desc="處理回應中"
                 ):
-                    llm_chat_completion = future.result()
+                    try:
+                        llm_chat_completion = future.result()
+                    except Exception as e:
+                        # 單題在重試耗盡後仍失敗時跳過該題，避免整檔已完成的結果一併遺失
+                        log_error(
+                            f"問題 {future_to_data[future][2] + 1} API 呼叫失敗，跳過該題: {e}"
+                        )
+                        total_failed += 1
+                        continue
                     usage = llm_chat_completion.usage
-                    question_text, ground_truth, question_id, inst_ids, kwargs_list = future_to_data[future]
+                    question_text, ground_truth, question_id, inst_ids, kwargs_list = (
+                        future_to_data[future]
+                    )
 
                     message = llm_chat_completion.choices[0].message
                     content = message.content
@@ -566,9 +686,7 @@ class Evaluator:
                     # 計算四個指標
                     if hasattr(self.scorer, "score_full"):
                         # IFBench scorer 需要 prompt 參數（某些 checker 如 RepeatChangeChecker）
-                        import inspect
-                        sig = inspect.signature(self.scorer.score_full)
-                        if "prompt" in sig.parameters:
+                        if self._score_full_accepts_prompt:
                             ifeval_result = self.scorer.score_full(
                                 response, inst_ids, kwargs_list, prompt=question_text
                             )
@@ -576,8 +694,10 @@ class Evaluator:
                             ifeval_result = self.scorer.score_full(response, inst_ids, kwargs_list)
                     else:
                         ifeval_result = {
-                            "prompt_strict": False, "prompt_loose": False,
-                            "instruction_strict": [], "instruction_loose": [],
+                            "prompt_strict": False,
+                            "prompt_loose": False,
+                            "instruction_strict": [],
+                            "instruction_loose": [],
                         }
 
                     prompt_strict = ifeval_result["prompt_strict"]
@@ -598,23 +718,25 @@ class Evaluator:
                     question_stats[question_id]["total"] += 1
                     total_samples += 1
 
-                    detailed_results.append({
-                        "question_id": question_id,
-                        "sample_id": 0,
-                        "question": question_text,
-                        "correct_answer": ground_truth,
-                        "llm_output": response,
-                        "llm_reasoning_output": None,
-                        "predicted_answer": response,
-                        "is_correct": is_correct,
-                        "prompt_strict": prompt_strict,
-                        "prompt_loose": prompt_loose,
-                        "instruction_strict": inst_strict,
-                        "instruction_loose": inst_loose,
-                        "usage_completion_tokens": usage.completion_tokens if usage else None,
-                        "usage_prompt_tokens": usage.prompt_tokens if usage else None,
-                        "usage_total_tokens": usage.total_tokens if usage else None,
-                    })
+                    detailed_results.append(
+                        {
+                            "question_id": question_id,
+                            "sample_id": 0,
+                            "question": question_text,
+                            "correct_answer": ground_truth,
+                            "llm_output": response,
+                            "llm_reasoning_output": None,
+                            "predicted_answer": response,
+                            "is_correct": is_correct,
+                            "prompt_strict": prompt_strict,
+                            "prompt_loose": prompt_loose,
+                            "instruction_strict": inst_strict,
+                            "instruction_loose": inst_loose,
+                            "usage_completion_tokens": usage.completion_tokens if usage else None,
+                            "usage_prompt_tokens": usage.prompt_tokens if usage else None,
+                            "usage_total_tokens": usage.total_tokens if usage else None,
+                        }
+                    )
 
                 # 在 metrics 中補充 instruction-level 指標
                 if all_inst_strict:
@@ -644,7 +766,10 @@ class Evaluator:
 
                     self.rate_limiter.wait()
 
-                    if hasattr(self.llm, "call") and getattr(type(self.llm), "__name__", "") == "WhisperModel":
+                    if (
+                        hasattr(self.llm, "call")
+                        and getattr(type(self.llm), "__name__", "") == "WhisperModel"
+                    ):
                         # Whisper API 路徑：直接傳音檔路徑
                         future = executor.submit(
                             self.llm.call,
@@ -658,6 +783,7 @@ class Evaluator:
                     else:
                         # Chat Completions 多模態路徑：建構含音檔 URL 的 messages
                         import base64
+
                         audio_url = audio_path
                         if os.path.isfile(audio_path):
                             with open(audio_path, "rb") as af:
@@ -670,7 +796,10 @@ class Evaluator:
                                 "role": "user",
                                 "content": [
                                     {"type": "audio_url", "audio_url": {"url": audio_url}},
-                                    {"type": "text", "text": "請將這段語音轉錄為文字，只輸出轉錄結果。"},
+                                    {
+                                        "type": "text",
+                                        "text": "請將這段語音轉錄為文字，只輸出轉錄結果。",
+                                    },
                                 ],
                             }
                         ]
@@ -696,7 +825,15 @@ class Evaluator:
                 for future in tqdm(
                     as_completed(future_tasks), total=len(future_tasks), desc="處理回應中"
                 ):
-                    llm_chat_completion = future.result()
+                    try:
+                        llm_chat_completion = future.result()
+                    except Exception as e:
+                        # 單題在重試耗盡後仍失敗時跳過該題，避免整檔已完成的結果一併遺失
+                        log_error(
+                            f"問題 {future_to_data[future][2] + 1} API 呼叫失敗，跳過該題: {e}"
+                        )
+                        total_failed += 1
+                        continue
                     usage = llm_chat_completion.usage
                     audio_path, correct_answer, question_id = future_to_data[future]
 
@@ -705,8 +842,7 @@ class Evaluator:
 
                     predicted_raw = self.extractor.extract(content)
                     predicted_answer = (
-                        None if predicted_raw is None
-                        else self.scorer.normalize(predicted_raw)
+                        None if predicted_raw is None else self.scorer.normalize(predicted_raw)
                     )
                     gold_normalized = self.scorer.normalize(correct_answer)
 
@@ -721,7 +857,8 @@ class Evaluator:
                             pass  # jiwer 未安裝，跳過 WER/CER 計算
 
                     is_correct = (
-                        False if predicted_answer is None
+                        False
+                        if predicted_answer is None
                         else self.scorer.score(predicted_answer, gold_normalized)
                     )
 
@@ -777,9 +914,7 @@ class Evaluator:
                     if self.shuffle_options:
                         q = self.shuffle_question_options(q)
 
-                    option_keys = sorted(
-                        [k for k in q if isinstance(k, str) and k.isupper() and len(k) <= 2]
-                    )
+                    option_keys = self._detect_option_keys(q)
 
                     image_path = q.get(image_field) or q.get("image_url") or q.get("image")
                     if not image_path:
@@ -793,16 +928,8 @@ class Evaluator:
                         continue
 
                     # 建構文字題目（與文字 MCQ 相同邏輯：question + 選項）
-                    question_text = (
-                        q["question"]
-                        + "\n"
-                        + "\n".join(
-                            [
-                                f"{k}: {v}"
-                                for k, v in q.items()
-                                if k not in ["question", "answer", image_field, "image_url", "image", "id"]
-                            ]
-                        )
+                    question_text = self._compose_question_text(
+                        q, option_keys, exclude=(image_field, "image_url", "image", "id")
                     )
 
                     # 圖片編碼為 data URI 或直接使用 URL
@@ -841,7 +968,15 @@ class Evaluator:
                 for future in tqdm(
                     as_completed(future_tasks), total=len(future_tasks), desc="處理回應中"
                 ):
-                    llm_chat_completion = future.result()
+                    try:
+                        llm_chat_completion = future.result()
+                    except Exception as e:
+                        # 單題在重試耗盡後仍失敗時跳過該題，避免整檔已完成的結果一併遺失
+                        log_error(
+                            f"問題 {future_to_data[future][2] + 1} API 呼叫失敗，跳過該題: {e}"
+                        )
+                        total_failed += 1
+                        continue
                     usage = llm_chat_completion.usage
                     (
                         question_text,
@@ -866,9 +1001,7 @@ class Evaluator:
 
                         predicted_raw = self.extractor.extract(content)
                         predicted_answer = (
-                            None
-                            if predicted_raw is None
-                            else self.scorer.normalize(predicted_raw)
+                            None if predicted_raw is None else self.scorer.normalize(predicted_raw)
                         )
 
                         is_correct = (
@@ -897,7 +1030,9 @@ class Evaluator:
                                 "llm_reasoning_output": reasoning_content,
                                 "predicted_answer": predicted_answer,
                                 "is_correct": is_correct,
-                                "usage_completion_tokens": usage.completion_tokens if usage else None,
+                                "usage_completion_tokens": (
+                                    usage.completion_tokens if usage else None
+                                ),
                                 "usage_prompt_tokens": usage.prompt_tokens if usage else None,
                                 "usage_total_tokens": usage.total_tokens if usage else None,
                             }
@@ -912,16 +1047,8 @@ class Evaluator:
                     if self.shuffle_options:
                         q = self.shuffle_question_options(q)
 
-                    option_keys = sorted(
-                        [k for k in q if isinstance(k, str) and k.isupper() and len(k) <= 2]
-                    )
-                    question_text = (
-                        q["question"]
-                        + "\n"
-                        + "\n".join(
-                            [f"{k}: {v}" for k, v in q.items() if k not in ["question", "answer"]]
-                        )
-                    )
+                    option_keys = self._detect_option_keys(q)
+                    question_text = self._compose_question_text(q, option_keys)
 
                     try:
                         correct_answer = self.scorer.normalize(q["answer"])
@@ -945,7 +1072,15 @@ class Evaluator:
                 for future in tqdm(
                     as_completed(future_tasks), total=len(future_tasks), desc="處理回應中"
                 ):
-                    llm_chat_completion = future.result()
+                    try:
+                        llm_chat_completion = future.result()
+                    except Exception as e:
+                        # 單題在重試耗盡後仍失敗時跳過該題，避免整檔已完成的結果一併遺失
+                        log_error(
+                            f"問題 {future_to_data[future][2] + 1} API 呼叫失敗，跳過該題: {e}"
+                        )
+                        total_failed += 1
+                        continue
                     usage = llm_chat_completion.usage
                     question_text, correct_answer, question_id, option_keys = future_to_data[future]
 
@@ -972,9 +1107,7 @@ class Evaluator:
 
                         predicted_raw = self.extractor.extract(extraction_source)
                         predicted_answer = (
-                            None
-                            if predicted_raw is None
-                            else self.scorer.normalize(predicted_raw)
+                            None if predicted_raw is None else self.scorer.normalize(predicted_raw)
                         )
 
                         is_correct = (
@@ -992,19 +1125,23 @@ class Evaluator:
                         question_stats[question_id]["total"] += 1
                         total_samples += 1
 
-                        detailed_results.append({
-                            "question_id": question_id,
-                            "sample_id": sample_id,
-                            "question": question_text,
-                            "correct_answer": correct_answer,
-                            "llm_output": content,
-                            "llm_reasoning_output": reasoning_content,
-                            "predicted_answer": predicted_answer,
-                            "is_correct": is_correct,
-                            "usage_completion_tokens": usage.completion_tokens,
-                            "usage_prompt_tokens": usage.prompt_tokens,
-                            "usage_total_tokens": usage.total_tokens,
-                        })
+                        detailed_results.append(
+                            {
+                                "question_id": question_id,
+                                "sample_id": sample_id,
+                                "question": question_text,
+                                "correct_answer": correct_answer,
+                                "llm_output": content,
+                                "llm_reasoning_output": reasoning_content,
+                                "predicted_answer": predicted_answer,
+                                "is_correct": is_correct,
+                                "usage_completion_tokens": (
+                                    usage.completion_tokens if usage else None
+                                ),
+                                "usage_prompt_tokens": usage.prompt_tokens if usage else None,
+                                "usage_total_tokens": usage.total_tokens if usage else None,
+                            }
+                        )
 
             accuracy = total_correct_samples / total_samples if total_samples else 0
 
@@ -1027,7 +1164,8 @@ class Evaluator:
         os.makedirs(results_dir, exist_ok=True)
 
         node_id = _get_node_id()
-        rank = self.model_overrides.get("_rank", 0)
+        # rank 來自 config 的 distributed 區段（由 ConfigurationManager 從 RANK 環境變數帶入）
+        rank = self.config.get("distributed", {}).get("rank", 0)
         if node_id != "0" or rank != 0:
             shard_suffix = f"_node{node_id}_rank{rank}"
         else:
@@ -1042,6 +1180,9 @@ class Evaluator:
         print(f"✅ 評測完成，結果已追加至 {results_path}")
         if total_unparsed > 0:
             print(f"⚠️  無法解析: {total_unparsed}/{total_samples} ({unparsed_rate:.1%})")
+        if total_failed > 0:
+            # API 呼叫失敗被跳過的題目不計入 accuracy 分母，必須明確警告使用者
+            print(f"⚠️  API 呼叫失敗被跳過: {total_failed} 題（accuracy 僅以成功題目計算）")
         metrics = {
             "accuracy": accuracy,
             "pass_at_k": pass_at_k,
@@ -1049,6 +1190,7 @@ class Evaluator:
             "pass_k": self.pass_k,
             "unparsed_count": total_unparsed,
             "unparsed_rate": unparsed_rate,
+            "failed_count": total_failed,
             "total_count": total_samples,
         }
 
@@ -1074,24 +1216,22 @@ class Evaluator:
         if getattr(self.extractor, "uses_ifeval", False):
             inst_strict = question_stats.get("_ifeval_inst_strict", {})
             inst_loose = question_stats.get("_ifeval_inst_loose", {})
-            prompt_loose_count = sum(
-                1 for d in detailed_results if d.get("prompt_loose", False)
-            )
+            prompt_loose_count = sum(1 for d in detailed_results if d.get("prompt_loose", False))
             inst_strict_acc = (
-                inst_strict["correct"] / inst_strict["total"]
-                if inst_strict.get("total") else 0.0
+                inst_strict["correct"] / inst_strict["total"] if inst_strict.get("total") else 0.0
             )
             inst_loose_acc = (
-                inst_loose["correct"] / inst_loose["total"]
-                if inst_loose.get("total") else 0.0
+                inst_loose["correct"] / inst_loose["total"] if inst_loose.get("total") else 0.0
             )
             prompt_loose_acc = prompt_loose_count / total_samples if total_samples else 0.0
-            metrics.update({
-                "prompt_strict": accuracy,           # same as accuracy
-                "prompt_loose": prompt_loose_acc,
-                "instruction_strict": inst_strict_acc,
-                "instruction_loose": inst_loose_acc,
-            })
+            metrics.update(
+                {
+                    "prompt_strict": accuracy,  # same as accuracy
+                    "prompt_loose": prompt_loose_acc,
+                    "instruction_strict": inst_strict_acc,
+                    "instruction_loose": inst_loose_acc,
+                }
+            )
             print(
                 f"  prompt strict={accuracy:.1%}  loose={prompt_loose_acc:.1%} | "
                 f"instruction strict={inst_strict_acc:.1%}  loose={inst_loose_acc:.1%}"
