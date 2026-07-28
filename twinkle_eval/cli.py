@@ -9,7 +9,11 @@ import sys
 from typing import List, Optional
 
 from .core.logger import log_error
+from .exporters import ResultsExporterFactory
+from .main import create_cli_parser
 from .main import main as main_func
+from .metrics import get_available_methods
+from .models import LLMFactory
 
 
 def main(args: Optional[List[str]] = None) -> int:
@@ -47,6 +51,59 @@ def main(args: Optional[List[str]] = None) -> int:
         # 恢復原始的 sys.argv
         if args is not None:
             sys.argv = original_argv
+
+
+def print_version() -> None:
+    """列印版本資訊"""
+    from . import __author__, __version__
+
+    print(f"🌟 Twinkle Eval v{__version__}")
+    print(f"作者: {__author__}")
+    print("GitHub: https://github.com/ai-twinkle/Eval")
+
+
+def print_help() -> None:
+    """列印詳細幫助資訊"""
+    parser = create_cli_parser()
+    parser.print_help()
+
+    print("\n🚀 更多使用範例:")
+    print("  # 使用預設配置執行評測")
+    print("  twinkle-eval")
+    print()
+    print("  # 使用自定義配置檔案")
+    print("  twinkle-eval --config my_config.yaml")
+    print()
+    print("  # 同時輸出多種格式")
+    print("  twinkle-eval --export json csv html")
+    print()
+    print("  # 查看支援的功能")
+    print("  twinkle-eval --list-llms")
+    print("  twinkle-eval --list-strategies")
+    print("  twinkle-eval --list-exporters")
+    print()
+    print("📖 詳細文件: https://github.com/ai-twinkle/Eval#readme")
+
+
+def cli_list_llms() -> None:
+    """列出支援的 LLM 類型"""
+    print("🤖 支援的 LLM 類型:")
+    for llm_type in LLMFactory.get_available_types():
+        print(f"  - {llm_type}")
+
+
+def cli_list_strategies() -> None:
+    """列出支援的評測策略"""
+    print("🎯 支援的評測策略:")
+    for strategy in get_available_methods():
+        print(f"  - {strategy}")
+
+
+def cli_list_exporters() -> None:
+    """列出支援的輸出格式"""
+    print("📊 支援的輸出格式:")
+    for exporter in ResultsExporterFactory.get_available_types():
+        print(f"  - {exporter}")
 
 
 if __name__ == "__main__":
