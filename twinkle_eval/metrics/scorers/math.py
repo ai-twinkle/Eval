@@ -21,8 +21,7 @@ class MathRulerScorer(Scorer):
             self._grade_answer: Callable[[str, str], bool] = grade_answer
         except ImportError:
             raise ImportError(
-                "數學評測策略需要安裝額外套件，請執行：\n"
-                "  pip install twinkle-eval[math]"
+                "數學評測策略需要安裝額外套件，請執行：\n" "  pip install twinkle-eval[math]"
             )
 
     def get_name(self) -> str:

@@ -272,6 +272,8 @@ results = runner.run_evaluation(export_formats=["json", "csv"])
 | `--dry-run` | 載入設定與資料集，顯示評測計畫但不呼叫 API |
 | `--resume TIMESTAMP` | 從指定時間戳的中斷點繼續評測 |
 | `--export FORMAT [FORMAT ...]` | 輸出格式（json, csv, html） |
+| `--convert-to-html JSON_FILE` | 將 JSON 結果檔轉換為 HTML 報表 |
+| `--convert-to-excel JSONL_FILE` | 將逐題結果 JSONL 轉換為 Excel（需安裝 `twinkle-eval[excel]`） |
 | `--finalize-results TIMESTAMP` | 合併分散式評測碎片並重新計算指標 |
 | `--hf-repo-id REPO` | 評測完成後上傳結果至 HuggingFace |
 | `--list-llms` | 列出支援的 LLM 類型 |

@@ -17,6 +17,7 @@ llm_api:
   base_url: "http://localhost:8000/v1"         # 支援 vision 的 OpenAI 相容端點
   api_key: "your-api-key"
   api_rate_limit: -1                           # QPS，-1 為不限制
+  max_workers: null                                    # 並行請求執行緒數（null 使用系統預設）
   max_retries: 3
   timeout: 300
   disable_ssl_verify: false

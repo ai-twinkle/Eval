@@ -1,6 +1,6 @@
 """TwinkleEvalRunner — 標準評測執行器。
 
-從 main.py 遷移而來；main.py 保持作為 CLI 入口，此處為核心執行邏輯。
+唯一的 Runner 實作；main.py 僅作為 CLI 入口並自此匯入。
 """
 
 import copy
@@ -11,12 +11,12 @@ from typing import Any, Dict, List, Optional
 import numpy as np
 
 from twinkle_eval.core.config import load_config
-from twinkle_eval.datasets import find_all_evaluation_files
-from twinkle_eval.runners.evaluator import Evaluator
 from twinkle_eval.core.exceptions import ConfigurationError, EvaluationError
-from twinkle_eval.exporters import ResultsExporterFactory
 from twinkle_eval.core.logger import log_error, log_info
+from twinkle_eval.datasets import find_all_evaluation_files
+from twinkle_eval.exporters import ResultsExporterFactory
 from twinkle_eval.metrics import create_metric_pair
+from twinkle_eval.runners.evaluator import Evaluator
 
 
 class TwinkleEvalRunner:
@@ -33,7 +33,7 @@ class TwinkleEvalRunner:
         """初始化評測執行器：載入配置、設定時間標記、建立結果目錄。"""
         try:
             self.config = load_config(self.config_path)
-            self.start_time = datetime.now().strftime("%Y%m%d_%H%M")
+            self.start_time = datetime.now().strftime("%Y%m%d_%H%M%S")
             self.start_datetime = datetime.now()
 
             os.makedirs(self.results_dir, exist_ok=True)
@@ -49,19 +49,24 @@ class TwinkleEvalRunner:
         if self.config is None:
             raise ConfigurationError("配置未載入")
 
-        if "llm_instance" in self.config:
-            del self.config["llm_instance"]
+        # 排除物件實例（不可序列化）後再複製，避免就地修改 self.config
+        # 導致同一個 runner 無法重複執行
+        config_without_instances = {
+            k: v
+            for k, v in self.config.items()
+            if k
+            not in (
+                "llm_instance",
+                "evaluation_strategy_instance",
+                "extractor_instance",
+                "scorer_instance",
+            )
+        }
+        save_config = copy.deepcopy(config_without_instances)
 
-        save_config = copy.deepcopy(self.config)
-
+        # 移除敏感資訊（API 金鑰）
         if "llm_api" in save_config and "api_key" in save_config["llm_api"]:
             del save_config["llm_api"]["api_key"]
-        if "evaluation_strategy_instance" in save_config:
-            del save_config["evaluation_strategy_instance"]
-        # 新架構：移除 extractor_instance / scorer_instance
-        for key in ("extractor_instance", "scorer_instance"):
-            if key in save_config:
-                del save_config[key]
 
         return save_config
 
@@ -114,16 +119,35 @@ class TwinkleEvalRunner:
             ):
                 if key in cfg:
                     settings[key] = cfg[key]
-            for mk in ("temperature", "top_p", "max_tokens", "frequency_penalty", "presence_penalty"):
+            for mk in (
+                "temperature",
+                "top_p",
+                "max_tokens",
+                "frequency_penalty",
+                "presence_penalty",
+            ):
                 if mk in cfg:
                     settings["model_overrides"][mk] = cfg[mk]
 
         return settings
 
     def _evaluate_dataset(
-        self, dataset_path: str, evaluator: Evaluator, repeat_runs: int, pass_k: int
+        self,
+        dataset_path: str,
+        evaluator: Evaluator,
+        repeat_runs: int,
+        pass_k: int,
+        completed_records: Optional[Dict[str, Any]] = None,
     ) -> Dict[str, Any]:
-        """評測單一資料集，支援多次執行並統計結果。"""
+        """評測單一資料集，支援多次執行並統計結果。
+
+        Args:
+            dataset_path: 資料集路徑
+            evaluator: 評測器實例
+            repeat_runs: 重複執行次數
+            pass_k: pass@k 的 k 值
+            completed_records: resume 模式下已完成的紀錄
+        """
         if self.config is None:
             raise ConfigurationError("配置未載入")
 
@@ -143,9 +167,37 @@ class TwinkleEvalRunner:
             file_total_counts: List[int] = []
 
             for run in range(repeat_runs):
+                # --resume：取得該 run 中此檔案已完成的題目（question_id → is_correct）。
+                # 已完成的題目由 evaluator 跳過並回填統計，讓 summary 涵蓋整個資料集；
+                # 完全跑完的檔案也會產生完整 metrics 而不會被誤判為失敗。
+                completed_ids: Optional[Any] = None
+                if completed_records is not None:
+                    run_key = f"eval_results_{self.start_time}_run{run}.jsonl"
+                    if run_key in completed_records:
+                        prefix = f"{file_path}|"
+                        records = completed_records[run_key]
+                        if hasattr(records, "items"):
+                            completed_ids = {
+                                rec[len(prefix) :]: bool(correct)
+                                for rec, correct in records.items()
+                                if rec.startswith(prefix)
+                            }
+                        else:
+                            # set 形式：僅跳過、不回填統計（維持 skip-only 契約）
+                            completed_ids = {
+                                rec[len(prefix) :] for rec in records if rec.startswith(prefix)
+                            }
+                        if completed_ids:
+                            log_info(
+                                f"⏭️  {file_path} (run {run})：跳過 {len(completed_ids)} 筆已完成題目"
+                            )
+
                 try:
                     file_path_result, metrics, result_path = evaluator.evaluate_file(
-                        file_path, f"{self.start_time}_run{run}", dataset_lang
+                        file_path,
+                        f"{self.start_time}_run{run}",
+                        dataset_lang,
+                        completed_ids=completed_ids,
                     )
                     file_accuracies.append(metrics["accuracy"])
                     file_pass_ats.append(metrics["pass_at_k"])
@@ -187,6 +239,7 @@ class TwinkleEvalRunner:
 
         print()
 
+        # 所有檔案均評測失敗時，拋出明確錯誤（而非以 accuracy=0 偽裝成正常結果）
         if not results:
             raise EvaluationError(
                 f"資料集 {dataset_path} 中所有檔案評測均失敗，無法產生結果。\n"
@@ -209,11 +262,17 @@ class TwinkleEvalRunner:
             "average_unparsed_rate": round(dataset_avg_unparsed_rate, 4),
         }
 
-    def run_evaluation(self, export_formats: Optional[List[str]] = None) -> str:
+    def run_evaluation(
+        self,
+        export_formats: Optional[List[str]] = None,
+        completed_records: Optional[Dict[str, Any]] = None,
+    ) -> str:
         """執行完整的評測流程。
 
         Args:
             export_formats: 輸出格式清單，預設為 ["json"]
+            completed_records: resume 模式下已完成的紀錄，key 為 run 檔名，
+                               value 為 {"file|question_id": is_correct} 的對應表
 
         Returns:
             str: 主要結果檔案路徑
@@ -230,10 +289,9 @@ class TwinkleEvalRunner:
         llm_instance = self.config["llm_instance"]
         strategy_config = self.config["evaluation"].get("strategy_config", {})
 
-        # 快取已建立的 (extractor, scorer) 配對
-        metric_cache: Dict[str, Any] = {}
+        # 快取已建立的 (extractor, scorer) 配對，避免重複實例化
         default_method = self.config["evaluation"]["evaluation_method"]
-        metric_cache[default_method] = create_metric_pair(default_method, strategy_config)
+        metric_cache = {default_method: create_metric_pair(default_method, strategy_config)}
 
         for dataset_path in dataset_paths:
             try:
@@ -259,9 +317,11 @@ class TwinkleEvalRunner:
                 )
 
                 dataset_result = self._evaluate_dataset(
-                    dataset_path, evaluator,
+                    dataset_path,
+                    evaluator,
                     repeat_runs=ds["repeat_runs"],
                     pass_k=ds["pass_k"],
+                    completed_records=completed_records,
                 )
                 if not dataset_result.get("results"):
                     log_error(f"資料集 {dataset_path} 評測完成但無有效結果，跳過")
@@ -283,6 +343,17 @@ class TwinkleEvalRunner:
                 print(message)
                 log_info(message)
 
+                # 多資料集評測時，每完成一個就顯示累計成績，方便長時間評測中掌握進度
+                if len(dataset_paths) > 1:
+                    print(
+                        f"📊 累計成績（{len(dataset_results)}/{len(dataset_paths)} 個資料集完成）:"
+                    )
+                    for done_path, done_result in dataset_results.items():
+                        print(
+                            f"  {done_path}: {done_result['average_accuracy']:.2%} "
+                            f"(±{done_result['average_std']:.2%})"
+                        )
+
             except ImportError as e:
                 msg = f"\n❌ 資料集 {dataset_path} 評測失敗：缺少必要套件。\n   {e}\n"
                 print(msg)
@@ -292,6 +363,7 @@ class TwinkleEvalRunner:
                 log_error(f"資料集 {dataset_path} 評測失敗: {e}")
                 continue
 
+        # 所有資料集均失敗時，拋出明確錯誤（而非靜默輸出空結果）
         if not dataset_results:
             failed_paths = ", ".join(dataset_paths)
             raise EvaluationError(
@@ -303,7 +375,7 @@ class TwinkleEvalRunner:
         current_duration = (
             (datetime.now() - self.start_datetime).total_seconds() if self.start_datetime else 0
         )
-        final_results: Dict[str, Any] = {
+        final_results = {
             "timestamp": self.start_time,
             "config": self._prepare_config_for_saving(),
             "dataset_results": dataset_results,
@@ -320,17 +392,15 @@ class TwinkleEvalRunner:
         log_info(f"評測完成，結果已匯出至: {', '.join(exported_files)}")
         return exported_files[0] if exported_files else ""
 
-    def _handle_google_services(
-        self, results: Dict[str, Any], export_formats: List[str]
-    ) -> None:
-        """處理 Google 服務整合。"""
+    def _handle_google_services(self, results: Dict[str, Any], export_formats: List[str]) -> None:
+        """處理 Google 服務整合（Drive 上傳與 Sheets 匯出）。"""
         if self.config is None:
             return
-
         google_services_config = self.config.get("google_services")
         if not google_services_config:
             return
 
+        # 處理 Google Drive 檔案上傳（最新的 log 和 results）
         google_drive_config = google_services_config.get("google_drive", {})
         if google_drive_config.get("enabled", False):
             try:
@@ -350,6 +420,7 @@ class TwinkleEvalRunner:
             except Exception as e:
                 log_error(f"Google Drive 檔案上傳失敗: {e}")
 
+        # 處理 Google Sheets 結果匯出
         google_sheets_config = google_services_config.get("google_sheets", {})
         if google_sheets_config.get("enabled", False):
             try:

@@ -56,7 +56,9 @@ class PatternExtractor(Extractor):
 
     def __init__(self, config: Optional[Dict[str, Any]] = None) -> None:
         super().__init__(config)
-        self.patterns: List[str] = self._config.get("patterns", self.DEFAULT_PATTERNS)
+        self.patterns: List[str] = list(self._config.get("patterns", self.DEFAULT_PATTERNS))
+        # 預先編譯正則，避免在逐題熱路徑中重複解析
+        self._compiled: List["re.Pattern[str]"] = [re.compile(p) for p in self.patterns]
 
     def get_name(self) -> str:
         return "pattern"
@@ -66,8 +68,8 @@ class PatternExtractor(Extractor):
         if not self.validate_output(llm_output):
             return None
 
-        for pattern in self.patterns:
-            match = re.search(pattern, llm_output)
+        for pattern in self._compiled:
+            match = pattern.search(llm_output)
             if match:
                 return match.group(1).strip()
         return None
@@ -76,3 +78,4 @@ class PatternExtractor(Extractor):
         """新增自訂模式。"""
         if pattern not in self.patterns:
             self.patterns.append(pattern)
+            self._compiled.append(re.compile(pattern))

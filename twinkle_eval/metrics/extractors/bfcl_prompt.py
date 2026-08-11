@@ -173,8 +173,5 @@ class BFCLPromptExtractor(Extractor):
             return None
 
         # 轉換為統一格式：[{"name": "func", "arguments": {...}}]
-        standard = [
-            {"name": list(c.keys())[0], "arguments": list(c.values())[0]}
-            for c in calls
-        ]
+        standard = [{"name": list(c.keys())[0], "arguments": list(c.values())[0]} for c in calls]
         return json.dumps(standard, ensure_ascii=False)

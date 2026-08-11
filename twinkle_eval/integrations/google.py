@@ -381,6 +381,10 @@ class GoogleSheetsService:
             if not values or len(values[0]) < 10:
                 log_info("建立 Google Sheets Header...")
                 self._create_header(spreadsheet_id, sheet_name)
+            elif "API_金鑰" in values[0]:
+                # 舊版 Header 含 API 金鑰欄位（已移除），需更新以避免資料欄位錯位
+                log_info("偵測到含 API_金鑰 欄位的舊版 Header，更新為新版...")
+                self._create_header(spreadsheet_id, sheet_name)
             else:
                 log_info("Google Sheets Header 已存在")
 
@@ -392,7 +396,6 @@ class GoogleSheetsService:
         header = [
             "時間戳記",
             "API_基礎網址",
-            "API_金鑰",
             "API_速率限制",
             "最大重試次數",
             "超時時間",
@@ -424,7 +427,8 @@ class GoogleSheetsService:
 
         try:
             range_name = f"{sheet_name}!A1:DD1"
-            body = {"values": [header]}
+            # 尾端補空字串，覆寫舊版 Header 可能殘留的多餘欄位
+            body = {"values": [header + [""] * 5]}
 
             self.service.spreadsheets().values().update(
                 spreadsheetId=spreadsheet_id, range=range_name, valueInputOption="RAW", body=body
@@ -448,9 +452,6 @@ class GoogleSheetsService:
         base_info = [
             timestamp,
             llm_api.get("base_url", ""),
-            (
-                llm_api.get("api_key", "")[:10] + "..." if llm_api.get("api_key") else ""
-            ),
             str(llm_api.get("api_rate_limit", "")),
             str(llm_api.get("max_retries", "")),
             str(llm_api.get("timeout", "")),

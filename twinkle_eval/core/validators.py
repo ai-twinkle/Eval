@@ -1,7 +1,7 @@
 """Validation utilities for Twinkle Eval."""
 
 import os
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List
 
 import yaml
 
@@ -168,7 +168,9 @@ class ConfigValidator:
         if "samples_per_question" in eval_config:
             spq = eval_config["samples_per_question"]
             if not isinstance(spq, int) or spq <= 0:
-                raise ValidationError("Evaluation 'samples_per_question' must be a positive integer")
+                raise ValidationError(
+                    "Evaluation 'samples_per_question' must be a positive integer"
+                )
 
         if "pass_k" in eval_config:
             pk = eval_config["pass_k"]
@@ -229,10 +231,10 @@ class ConfigValidator:
                 if "pass_k" in value:
                     pk = value["pass_k"]
                     if not isinstance(pk, int) or pk <= 0:
-                        raise ValidationError(
-                            "dataset_overrides.pass_k must be a positive integer"
-                        )
-                    spq = value.get("samples_per_question") or eval_config.get("samples_per_question")
+                        raise ValidationError("dataset_overrides.pass_k must be a positive integer")
+                    spq = value.get("samples_per_question") or eval_config.get(
+                        "samples_per_question"
+                    )
                     if isinstance(spq, int) and spq > 0 and pk > spq:
                         raise ValidationError(
                             f"dataset_overrides.pass_k ({pk}) cannot exceed samples_per_question ({spq})"
@@ -266,8 +268,6 @@ class DatasetValidator:
     """Validator for dataset files and directories."""
 
     SUPPORTED_EXTENSIONS = (".json", ".jsonl", ".parquet", ".csv", ".tsv")
-    REQUIRED_COLUMNS = ("question", "answer")
-    VALID_OPTION_COLUMNS = ("A", "B", "C", "D")
 
     @classmethod
     def validate_dataset_path(cls, dataset_path: str) -> bool:
@@ -313,95 +313,5 @@ class DatasetValidator:
 
         if not os.access(file_path, os.R_OK):
             return False
-
-        return True
-
-    @classmethod
-    def validate_dataset_content(cls, data: List[Dict[str, Any]], file_path: str) -> bool:
-        """Validate dataset content structure."""
-        if not data:
-            raise ValidationError(f"Dataset file is empty: {file_path}")
-
-        for idx, row in enumerate(data):
-            if not isinstance(row, dict):
-                raise ValidationError(f"Row {idx} in {file_path} is not a dictionary")
-
-            # Check required columns
-            for col in cls.REQUIRED_COLUMNS:
-                if col not in row:
-                    raise ValidationError(
-                        f"Missing required column '{col}' in row {idx} of {file_path}"
-                    )
-
-                if not isinstance(row[col], str) or not row[col].strip():
-                    raise ValidationError(
-                        f"Column '{col}' in row {idx} of {file_path} must be a non-empty string"
-                    )
-
-            # Validate answer format
-            answer = row["answer"].strip().upper()
-            if answer not in cls.VALID_OPTION_COLUMNS:
-                raise ValidationError(
-                    f"Invalid answer '{answer}' in row {idx} of {file_path}. Must be A, B, C, or D"
-                )
-
-            # Check if corresponding option exists
-            if answer not in row:
-                raise ValidationError(
-                    f"Answer '{answer}' has no corresponding option in row {idx} of {file_path}"
-                )
-
-        return True
-
-
-class RuntimeValidator:
-    """Validator for runtime conditions and states."""
-
-    @classmethod
-    def validate_llm_response(cls, response: Optional[str], context: str = "") -> bool:
-        """Validate LLM response."""
-        if response is None:
-            raise ValidationError(
-                f"LLM returned None response{' for ' + context if context else ''}"
-            )
-
-        if not response.strip():
-            raise ValidationError(
-                f"LLM returned empty response{' for ' + context if context else ''}"
-            )
-
-        return True
-
-    @classmethod
-    def validate_accuracy_calculation(cls, correct: int, total: int) -> bool:
-        """Validate accuracy calculation inputs."""
-        if not isinstance(correct, int) or correct < 0:
-            raise ValidationError("Correct count must be a non-negative integer")
-
-        if not isinstance(total, int) or total <= 0:
-            raise ValidationError("Total count must be a positive integer")
-
-        if correct > total:
-            raise ValidationError("Correct count cannot exceed total count")
-
-        return True
-
-    @classmethod
-    def validate_export_path(cls, export_path: str) -> bool:
-        """Validate export path."""
-        if not isinstance(export_path, str) or not export_path.strip():
-            raise ValidationError("Export path must be a non-empty string")
-
-        # Check if directory exists or can be created
-        directory = os.path.dirname(export_path)
-        if directory and not os.path.exists(directory):
-            try:
-                os.makedirs(directory, exist_ok=True)
-            except Exception as e:
-                raise ValidationError(f"Cannot create export directory {directory}: {e}")
-
-        # Check write permissions
-        if directory and not os.access(directory, os.W_OK):
-            raise ValidationError(f"No write permission for export directory: {directory}")
 
         return True

@@ -1,35 +1,55 @@
 import logging
 import os
+import threading
 from datetime import datetime
 from typing import Any, Dict, List, Optional
 
 # 取得啟動時間
-start_time = datetime.now().strftime("%Y%m%d_%H%M")
+start_time = datetime.now().strftime("%Y%m%d_%H%M%S")
 
-# 建立 logs 資料夾（如果不存在）
 logs_dir = "logs"
-os.makedirs(logs_dir, exist_ok=True)
 
-# 設定帶有時間戳的 Log 檔名
+# 帶有時間戳的 Log 檔名
 log_filename = os.path.join(logs_dir, f"evaluation_{start_time}.log")
 
-logging.basicConfig(
-    filename=log_filename,
-    level=logging.INFO,
-    format="%(asctime)s - %(levelname)s - %(message)s",
-    encoding="utf-8",
-)
+_configure_lock = threading.Lock()
+_configured = False
 
 
-def log_info(message):
+def _ensure_configured() -> None:
+    """延遲初始化 logging：首次寫入時才建立 logs/ 目錄與檔案 handler。
+
+    避免 import 副作用——否則連 `twinkle-eval --version` 都會在
+    當前工作目錄產生 logs/ 資料夾。
+    """
+    global _configured
+    if _configured:
+        return
+    with _configure_lock:
+        if _configured:
+            return
+        os.makedirs(logs_dir, exist_ok=True)
+        logging.basicConfig(
+            filename=log_filename,
+            level=logging.INFO,
+            format="%(asctime)s - %(levelname)s - %(message)s",
+            encoding="utf-8",
+        )
+        _configured = True
+
+
+def log_info(message: str) -> None:
+    _ensure_configured()
     logging.info(message)
 
 
-def log_error(message):
+def log_error(message: str) -> None:
+    _ensure_configured()
     logging.error(message)
 
 
-def log_warning(message):
+def log_warning(message: str) -> None:
+    _ensure_configured()
     logging.warning(message)
 
 

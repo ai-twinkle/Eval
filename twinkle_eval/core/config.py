@@ -5,9 +5,9 @@ import yaml
 
 from twinkle_eval.core.exceptions import ConfigurationError, ValidationError
 from twinkle_eval.core.logger import log_error, log_info
+from twinkle_eval.core.validators import ConfigValidator, DatasetValidator
 from twinkle_eval.metrics import create_metric_pair, get_available_methods
 from twinkle_eval.models import LLMFactory
-from twinkle_eval.core.validators import ConfigValidator, DatasetValidator
 
 
 class ConfigurationManager:
@@ -180,99 +180,22 @@ class ConfigurationManager:
 
         google_drive_config = google_services_config.get("google_drive", {})
         if google_drive_config.get("enabled", False):
-            try:
-                self._validate_google_drive_config(google_drive_config)
-                log_info("Google Drive 配置驗證完成")
-            except ConfigurationError as e:
-                if "不存在或 Service Account 無權限存取" in str(e):
-                    auth_method = google_drive_config.get("auth_method", "service_account")
-                    if auth_method == "service_account":
-                        log_error(f"Service Account 驗證失敗: {e}")
-                        log_info("建議解決方案:")
-                        log_info("1. 將 Service Account Email 加入 Google Drive 資料夾共享")
-                        log_info("2. 或改用 OAuth 驗證方式：設定 auth_method: 'oauth'")
-                    else:
-                        raise
-                else:
-                    raise
+            self._validate_google_drive_config(google_drive_config)
+            log_info("Google Drive 配置驗證完成")
 
     def _validate_google_sheets_config(self, config: Dict[str, Any]) -> None:
         spreadsheet_id = config.get("spreadsheet_id")
         if not spreadsheet_id or not spreadsheet_id.strip():
             raise ConfigurationError("Google Sheets 配置錯誤: spreadsheet_id 為必填項目")
 
+        # 僅做本地結構驗證；連線與權限問題交由實際匯出時回報。
+        # 設定載入階段不進行任何網路呼叫（config 模組不做 API 呼叫，
+        # 也確保 --validate / --dry-run 不產生網路流量）。
         self._validate_google_auth_config(config, "Google Sheets")
 
-        try:
-            from twinkle_eval.integrations.google import GoogleSheetsService
-
-            sheets_service = GoogleSheetsService(config)
-            sheets_service.service.spreadsheets().get(spreadsheetId=spreadsheet_id).execute()
-            log_info(f"Google Sheets 連接測試成功 - 試算表 ID: {spreadsheet_id}")
-
-        except Exception as e:
-            raise ConfigurationError(f"Google Sheets 配置驗證失敗: {e}") from e
-
     def _validate_google_drive_config(self, config: Dict[str, Any]) -> None:
+        # 僅做本地結構驗證；資料夾存取權限問題交由實際上傳時回報。
         self._validate_google_auth_config(config, "Google Drive")
-
-        try:
-            from twinkle_eval.integrations.google import GoogleDriveUploader
-
-            drive_uploader = GoogleDriveUploader(config)
-
-            log_folder_id = config.get("log_folder_id")
-            if log_folder_id and log_folder_id.strip():
-                try:
-                    folder_info = (
-                        drive_uploader.service.files()
-                        .get(
-                            fileId=log_folder_id,
-                            fields="id,name,mimeType",
-                            supportsAllDrives=True,
-                        )
-                        .execute()
-                    )
-
-                    if folder_info.get("mimeType") != "application/vnd.google-apps.folder":
-                        raise ConfigurationError(
-                            f"Google Drive log_folder_id 指向的不是資料夾: {log_folder_id}"
-                        )
-
-                    log_info(
-                        f"Google Drive 資料夾驗證成功 - {folder_info.get('name')} ({log_folder_id})"
-                    )
-
-                except Exception as folder_error:
-                    if "File not found" in str(folder_error) or "notFound" in str(folder_error):
-                        service_account_email = None
-                        try:
-                            import json
-
-                            credentials_file = config.get("credentials_file")
-                            with open(credentials_file, "r", encoding="utf-8") as f:
-                                cred_data = json.load(f)
-                                service_account_email = cred_data.get("client_email", "未知")
-                        except Exception:
-                            service_account_email = "未知"
-
-                        raise ConfigurationError(
-                            f"Google Drive 資料夾不存在或 Service Account 無權限存取: {log_folder_id}\n"
-                            f"Service Account: {service_account_email}\n"
-                            f"請確認：\n"
-                            f"1. 資料夾 ID 正確: {log_folder_id}\n"
-                            f"2. 資料夾存在且未被刪除\n"
-                            f"3. Service Account ({service_account_email}) 已被加入資料夾的共享權限"
-                        ) from folder_error
-                    else:
-                        raise ConfigurationError(
-                            f"Google Drive 資料夾驗證失敗: {folder_error}"
-                        ) from folder_error
-
-            log_info("Google Drive 配置驗證完成")
-
-        except Exception as e:
-            raise ConfigurationError(f"Google Drive 配置驗證失敗: {e}") from e
 
     def _validate_google_auth_config(self, config: Dict[str, Any], service_name: str) -> None:
         auth_method = config.get("auth_method", "service_account")

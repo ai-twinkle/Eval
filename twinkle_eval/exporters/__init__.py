@@ -3,9 +3,8 @@
 import csv
 import json
 import os
+from html import escape as html_escape
 from typing import Any, Dict, List, Optional, Type
-
-import pandas as pd
 
 from twinkle_eval.core.abc import ResultsExporter
 
@@ -125,6 +124,16 @@ class ExcelExporter(ResultsExporter):
         return ".xlsx"
 
     def export(self, results: Dict[str, Any], output_path: str) -> str:
+        # pandas / openpyxl 僅在實際匯出 Excel 時載入，避免拖慢一般評測的啟動時間
+        import pandas as pd
+
+        try:
+            import openpyxl  # noqa: F401 — 提前檢查，給出安裝指引而非晦澀的 ImportError
+        except ImportError as e:
+            raise ImportError(
+                "Excel 匯出需要 openpyxl，請執行: pip install twinkle-eval[excel]"
+            ) from e
+
         if not output_path.endswith(self.get_file_extension()):
             output_path += self.get_file_extension()
 
@@ -258,6 +267,59 @@ class HTMLExporter(ResultsExporter):
                         )
 
         return enhanced
+
+    @staticmethod
+    def _render_question_item(detail: Dict[str, Any], index: int, is_correct: bool) -> str:
+        """渲染單一題目區塊。正確與錯誤答題共用同一模板，僅樣式與標記不同。"""
+        css_class = "correct" if is_correct else "incorrect"
+        badge_class = "correct-badge" if is_correct else "incorrect-badge"
+        badge_text = "✓ 正確" if is_correct else "✗ 錯誤"
+        predicted_class = "correct-answer" if is_correct else "incorrect-answer"
+
+        question_id = detail.get("question_id", index)
+        # 內容一律經過 HTML escape，避免模型輸出中的標籤破壞或注入報表
+        question = html_escape(str(detail.get("question") or ""))
+        correct_answer = html_escape(str(detail.get("correct_answer") or ""))
+        predicted_answer = html_escape(str(detail.get("predicted_answer") or ""))
+        llm_output = html_escape(str(detail.get("llm_output") or ""))
+        reasoning = html_escape(str(detail.get("llm_reasoning_output") or ""))
+        usage_completion = detail.get("usage_completion_tokens") or 0
+        usage_prompt = detail.get("usage_prompt_tokens") or 0
+        usage_total = detail.get("usage_total_tokens") or 0
+
+        reasoning_block = (
+            f'<div class="reasoning"><strong>推理過程：</strong>{reasoning}</div>'
+            if reasoning
+            else ""
+        )
+
+        return f"""
+            <div class="question-item {css_class}">
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;">
+                    <h3>第 {question_id} 題</h3>
+                    <span class="status-badge {badge_class}">{badge_text}</span>
+                </div>
+
+                <div class="question-text">{question}</div>
+
+                <div class="answer-section">
+                    <p><strong>正確答案：</strong> <span class="correct-answer">{correct_answer}</span></p>
+                    <p><strong>預測答案：</strong> <span class="{predicted_class}">{predicted_answer}</span></p>
+                </div>
+
+                <div class="llm-output">
+                    <strong>LLM 輸出：</strong>
+                    {llm_output}
+                </div>
+
+                {reasoning_block}
+
+                <div class="usage-info">
+                    <strong>Token 使用量：</strong>
+                    提示 {usage_prompt:,} | 完成 {usage_completion:,} | 總計 {usage_total:,}
+                </div>
+            </div>
+"""
 
     def _generate_summary_html(self, results: Dict[str, Any]) -> str:
         timestamp = results.get("timestamp", "")
@@ -420,7 +482,7 @@ class HTMLExporter(ResultsExporter):
             <div class="stat-label">錯誤題數</div>
         </div>
         <div class="stat-item">
-            <div class="stat-number" style="color: #007bff;">{sum(d.get('usage_total_tokens', 0) for d in details):,}</div>
+            <div class="stat-number" style="color: #007bff;">{sum(d.get('usage_total_tokens') or 0 for d in details):,}</div>
             <div class="stat-label">總 Token 使用量</div>
         </div>
     </div>
@@ -429,7 +491,10 @@ class HTMLExporter(ResultsExporter):
             correct_details = [d for d in details if d.get("is_correct", False)]
             incorrect_details = [d for d in details if not d.get("is_correct", False)]
 
-            html += f"""
+            # 以 list + join 組裝，避免大量題目時 str += 的 O(n²) 開銷
+            parts = [
+                html,
+                f"""
     <div class="tabs">
         <div class="tab-buttons">
             <button class="tab-button correct" onclick="showTab('correct')">✓ 正確答題 ({len(correct_details)})</button>
@@ -437,96 +502,30 @@ class HTMLExporter(ResultsExporter):
         </div>
 
         <div id="correct-tab" class="tab-content">
-"""
-
-            for i, detail in enumerate(correct_details, 1):
-                question_id = detail.get("question_id", i)
-                question = detail.get("question", "")
-                correct_answer = detail.get("correct_answer", "")
-                predicted_answer = detail.get("predicted_answer", "")
-                llm_output = detail.get("llm_output", "")
-                reasoning = detail.get("llm_resoning_output", "")
-                usage_completion = detail.get("usage_completion_tokens", 0)
-                usage_prompt = detail.get("usage_prompt_tokens", 0)
-                usage_total = detail.get("usage_total_tokens", 0)
-
-                html += f"""
-            <div class="question-item correct">
-                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;">
-                    <h3>第 {question_id} 題</h3>
-                    <span class="status-badge correct-badge">✓ 正確</span>
-                </div>
-
-                <div class="question-text">{question}</div>
-
-                <div class="answer-section">
-                    <p><strong>正確答案：</strong> <span class="correct-answer">{correct_answer}</span></p>
-                    <p><strong>預測答案：</strong> <span class="correct-answer">{predicted_answer}</span></p>
-                </div>
-
-                <div class="llm-output">
-                    <strong>LLM 輸出：</strong>
-                    {llm_output}
-                </div>
-
-                {f'<div class="reasoning"><strong>推理過程：</strong>{reasoning}</div>' if reasoning else ''}
-
-                <div class="usage-info">
-                    <strong>Token 使用量：</strong>
-                    提示 {usage_prompt:,} | 完成 {usage_completion:,} | 總計 {usage_total:,}
-                </div>
-            </div>
-"""
-
-            html += """
+""",
+            ]
+            parts.extend(
+                self._render_question_item(detail, i, is_correct=True)
+                for i, detail in enumerate(correct_details, 1)
+            )
+            parts.append(
+                """
         </div>
 
         <div id="incorrect-tab" class="tab-content">
 """
-
-            for i, detail in enumerate(incorrect_details, 1):
-                question_id = detail.get("question_id", i)
-                question = detail.get("question", "")
-                correct_answer = detail.get("correct_answer", "")
-                predicted_answer = detail.get("predicted_answer", "")
-                llm_output = detail.get("llm_output", "")
-                reasoning = detail.get("llm_resoning_output", "")
-                usage_completion = detail.get("usage_completion_tokens", 0)
-                usage_prompt = detail.get("usage_prompt_tokens", 0)
-                usage_total = detail.get("usage_total_tokens", 0)
-
-                html += f"""
-            <div class="question-item incorrect">
-                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;">
-                    <h3>第 {question_id} 題</h3>
-                    <span class="status-badge incorrect-badge">✗ 錯誤</span>
-                </div>
-
-                <div class="question-text">{question}</div>
-
-                <div class="answer-section">
-                    <p><strong>正確答案：</strong> <span class="correct-answer">{correct_answer}</span></p>
-                    <p><strong>預測答案：</strong> <span class="incorrect-answer">{predicted_answer}</span></p>
-                </div>
-
-                <div class="llm-output">
-                    <strong>LLM 輸出：</strong>
-                    {llm_output}
-                </div>
-
-                {f'<div class="reasoning"><strong>推理過程：</strong>{reasoning}</div>' if reasoning else ''}
-
-                <div class="usage-info">
-                    <strong>Token 使用量：</strong>
-                    提示 {usage_prompt:,} | 完成 {usage_completion:,} | 總計 {usage_total:,}
-                </div>
-            </div>
-"""
-
-            html += """
+            )
+            parts.extend(
+                self._render_question_item(detail, i, is_correct=False)
+                for i, detail in enumerate(incorrect_details, 1)
+            )
+            parts.append(
+                """
         </div>
     </div>
 """
+            )
+            html = "".join(parts)
         else:
             html = f"""
 <!DOCTYPE html>
@@ -661,9 +660,7 @@ class ResultsExporterFactory:
         """依類型名稱建立輸出器實例。"""
         if exporter_type not in cls._registry:
             available_types = ", ".join(cls._registry.keys())
-            raise ValueError(
-                f"不支援的輸出格式: {exporter_type}. 可用格式: {available_types}"
-            )
+            raise ValueError(f"不支援的輸出格式: {exporter_type}. 可用格式: {available_types}")
 
         # 延遲載入 Google Sheets exporter 以避免循環匯入
         if exporter_type == "google_sheets" and cls._registry[exporter_type] is None:

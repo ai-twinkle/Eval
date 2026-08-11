@@ -89,19 +89,22 @@
 
 ### 原則 A：工廠模式 + 策略模式是唯一的擴充路徑
 
-本專案使用三大工廠類別作為擴充點：
+本專案的擴充點：
 
-| 工廠 | 對應介面 | 負責建立 |
+| 擴充點 | 對應介面 | 負責建立 |
 |------|----------|----------|
-| `LLMFactory` | `LLM`（ABC） | LLM 後端實作 |
-| `EvaluationStrategyFactory` | `EvaluationStrategy`（ABC） | 答案提取策略 |
-| `ResultsExporterFactory` | （抽象基底） | 結果輸出格式 |
+| `LLMFactory`（`models/base.py`） | `LLM`（ABC） | LLM 後端實作 |
+| `PRESETS` / `register_preset()`（`metrics/__init__.py`） | `Extractor` + `Scorer`（ABC） | 評測方法（答案抽取 + 評分） |
+| `ResultsExporterFactory`（`exporters/`） | `ResultsExporter`（ABC） | 結果輸出格式 |
+| `Evaluator._PIPELINES`（`runners/evaluator.py`） | Extractor capability flags | 評測管線（logit / tool calls / vision…） |
 
 **規則**：
-- 新增 LLM 後端 → 繼承 `LLM`，實作 `call()` 和 `validate_config()`，向 `LLMFactory` 註冊
-- 新增評測策略 → 繼承 `EvaluationStrategy`，實作 `extract_answer()` 和 `get_strategy_name()`，向 `EvaluationStrategyFactory` 註冊
-- 新增輸出格式 → 繼承對應基底類別，向 `ResultsExporterFactory` 註冊
-- **禁止**在 `evaluators.py`、`main.py` 等核心流程中用 `if/elif` 判斷具體類型，應改用工廠或策略物件
+- 新增 LLM 後端 → 繼承 `LLM`，實作 `call()` 和 `validate_config()`，向 `LLMFactory.register_llm()` 註冊
+- 新增評測方法 → 繼承 `Extractor` 與 `Scorer`，以 `register_preset()` 或 `PRESETS` 登錄
+- 新增輸出格式 → 繼承 `ResultsExporter`，向 `ResultsExporterFactory` 註冊
+- 需要全新評測管線（不同的請求/解析形態）→ 在 `Extractor` ABC 宣告 capability flag，
+  於 `Evaluator._PIPELINES` 註冊 pipeline method
+- **禁止**在核心流程（`runners/`、`main.py`）中用 `if/elif` 判斷具體類型，應改用工廠、preset 或管線分派表
 
 ### 原則 B：配置驅動（Config-Driven），禁止硬編碼行為
 
@@ -185,44 +188,44 @@ option_keys = [k for k in question_data if k.isupper() and len(k) <= 2]
 twinkle_eval/
 ├── __init__.py             # 套件入口，定義公開 API（__all__）
 ├── cli.py                  # CLI 入口點（entry point: twinkle-eval 命令）
-├── main.py                 # TwinkleEvalRunner 主流程 + argparse 定義
-│                           # ↑ 控制器層，協調各模組
-├── config.py               # ConfigurationManager：載入、驗證、解析 YAML
-├── templates/              # 設定檔範本（`--init` 時產生）
-│   ├── multiple_choice.yaml
-│   ├── math.yaml
-│   ├── regex_match.yaml
-│   └── ...                 # 每個 evaluation method 一個範本
+├── main.py                 # argparse 定義與各命令 handler（--validate、--resume、
+│                           #   --convert-to-html / --convert-to-excel 等）
+├── benchmarks.py           # Benchmark registry 與 --download-dataset 下載邏輯
+├── templates/              # 設定檔範本（`--init` 時產生），每個 evaluation method 一個
 │
-├── models.py               # LLM 抽象層
-│   ├── LLM（ABC）          # → call(), validate_config()
-│   ├── OpenAIModel         # 目前唯一實作，OpenAI 相容格式
-│   └── LLMFactory          # 工廠，用 register_llm() 擴充
+├── core/                   # 核心抽象與工具
+│   ├── abc.py              # LLM / Extractor / Scorer / ResultsExporter 四大 ABC；
+│   │                       #   Extractor 上宣告 capability flags（uses_logprobs、
+│   │                       #   uses_tool_calls、uses_ifeval、uses_audio、uses_vision…）
+│   ├── config.py           # ConfigurationManager：載入、驗證、解析 YAML（不做 API 呼叫）
+│   ├── validators.py       # ConfigValidator / DatasetValidator
+│   ├── exceptions.py       # 自訂例外類別（繼承自 TwinkleEvalError）
+│   └── logger.py           # 日誌工具（延遲初始化：首次寫入才建立 logs/）
 │
-├── dataset.py              # 資料集載入
-│   ├── Dataset             # 載入 CSV/JSON/JSONL/Parquet，迭代題目
-│   ├── find_all_evaluation_files()  # 遞迴找指定目錄下的所有評測檔
-│   └── download_huggingface_dataset() / list_huggingface_dataset_info()
+├── models/                 # LLM 後端，向 LLMFactory 註冊
+│   ├── base.py             # LLMFactory（register_llm() 擴充）
+│   ├── openai.py           # OpenAI 相容 Chat Completions（llm_api.type: "openai"）
+│   ├── responses.py        # OpenAI Responses API（llm_api.type: "openai_responses"）
+│   └── whisper.py          # Whisper 轉錄 API（llm_api.type: "whisper"）
 │
-├── evaluators.py           # 評測核心
-│   ├── RateLimiter         # 控制 API 呼叫速率
-│   └── Evaluator           # 並行評測（ThreadPoolExecutor），對接 LLM + Strategy
+├── metrics/                # 評測方法 = (Extractor, Scorer) preset
+│   ├── __init__.py         # PRESETS 對照表、create_metric_pair()、register_preset()
+│   ├── extractors/         # 答案抽取（pattern/box/logit/math/bfcl/ifeval/ifbench/
+│   │                       #   niah/ragas/text2sql/regex_match/asr/vision_mcq）
+│   ├── scorers/            # 答案比對與評分
+│   └── checkers/           # IFEval / IFBench instruction checkers（移植自官方實作）
 │
-├── evaluation_strategies.py # 答案提取策略
-│   ├── EvaluationStrategy（ABC）  # → extract_answer(), get_strategy_name()
-│   ├── PatternMatchingStrategy    # 正則表達式匹配（預設含中英文模式）
-│   ├── BoxExtractionStrategy      # 提取 \box{} / \boxed{}
-│   ├── CustomRegexStrategy        # 自訂正則
-│   └── EvaluationStrategyFactory  # 工廠，用 register_strategy() 擴充
+├── datasets/               # 資料集載入（CSV/JSON/JSONL/Parquet/Arrow）與 HF 下載
 │
-├── results_exporters.py    # 結果輸出
-│   └── ResultsExporterFactory     # 工廠，支援 json/csv/html/google_sheets
+├── runners/
+│   ├── standard.py         # TwinkleEvalRunner（唯一實作；main.py 由此 re-export）
+│   ├── evaluator.py        # Evaluator：依 Extractor capability flags 從 _PIPELINES
+│   │                       #   分派評測管線（新增評測類型時註冊 pipeline，勿加 if/elif）
+│   ├── benchmark.py        # LLM 效能基準測試（--benchmark）
+│   └── finalize.py         # 分散式碎片合併（--finalize-results）
 │
-├── validators.py           # 輸入驗證（config & dataset）
-├── exceptions.py           # 自訂例外類別（繼承自 TwinkleEvalError）
-├── google_services.py      # Google Drive / Sheets 整合（可選功能）
-├── benchmark.py            # LLM 效能基準測試（BenchmarkRunner）
-└── logger.py               # 日誌工具（log_info, log_error 等）
+├── exporters/              # 結果輸出（json/csv/excel/html/google_sheets）
+└── integrations/           # Google Drive/Sheets、HuggingFace 上傳（可選功能）
 ```
 
 ### 資料流向
@@ -230,19 +233,18 @@ twinkle_eval/
 ```
 config.yaml
     ↓ ConfigurationManager.load_config()
-config dict（含 llm_instance、evaluation_strategy_instance）
+config dict（含 llm_instance、extractor_instance、scorer_instance）
     ↓
-TwinkleEvalRunner.run_evaluation()
+TwinkleEvalRunner.run_evaluation()（runners/standard.py）
     ↓
 Evaluator.evaluate_file()  ←── Dataset（逐題迭代）
-    ↓ (ThreadPoolExecutor 並行)
-LLM.call()  →  API response
+    ↓ 依 Extractor capability flags 選擇評測管線（_PIPELINES）
+    ↓ (ThreadPoolExecutor 並行，max_workers 可由 llm_api.max_workers 設定)
+LLM.call()  →  ChatCompletion 相容回應
     ↓
-EvaluationStrategy.extract_answer()  →  predicted answer
+Extractor.extract()  →  Scorer.normalize() / score()
     ↓
-比對 correct_answer  →  accuracy
-    ↓
-results/eval_results_{timestamp}_run{N}.jsonl（append 模式）
+results/eval_results_{timestamp}_run{N}.jsonl（append 模式，每列含 file 欄位）
     ↓
 ResultsExporter.export()  →  results/results_{timestamp}.json
 ```
@@ -255,14 +257,16 @@ ResultsExporter.export()  →  results/results_{timestamp}.json
 
 | 模組 | 職責 | 禁止做的事 |
 |------|------|-----------|
-| `config.py` | 載入 & 驗證 YAML，建立 llm/strategy 實例 | 不做 API 呼叫、不做評測邏輯 |
-| `models.py` | 封裝 LLM API 呼叫 | 不做答案解析、不做資料集處理 |
-| `dataset.py` | 載入資料集、格式正規化 | 不做 API 呼叫、不做評分 |
-| `evaluators.py` | 協調並行評測流程、計算 accuracy | 不直接解析答案（交給 strategy）|
-| `evaluation_strategies.py` | 從 LLM 輸出文字提取答案 | 不做 API 呼叫、不讀檔案 |
-| `results_exporters.py` | 將結果字典序列化為各種格式 | 不做評測邏輯、不修改結果 |
-| `main.py` | 組裝流程、定義 CLI 參數 | 不實作具體的評測或解析邏輯 |
-| `validators.py` | 驗證 config 結構與資料集格式 | 不修改 config 或資料集 |
+| `core/config.py` | 載入 & 驗證 YAML，建立 llm/extractor/scorer 實例 | 不做 API 呼叫、不做評測邏輯 |
+| `models/` | 封裝 LLM API 呼叫，回傳 ChatCompletion 相容格式 | 不做答案解析、不做資料集處理 |
+| `datasets/` | 載入資料集、格式正規化、HF 下載 | 不做 API 呼叫、不做評分 |
+| `runners/evaluator.py` | 協調並行評測管線、統計 accuracy/pass@k | 不直接解析答案（交給 Extractor/Scorer）|
+| `metrics/extractors/` | 從 LLM 輸出文字提取答案 | 不做 API 呼叫、不讀檔案 |
+| `metrics/scorers/` | 答案正規化與比對評分 | 不做 API 呼叫 |
+| `exporters/` | 將結果字典序列化為各種格式 | 不做評測邏輯、不修改結果 |
+| `runners/standard.py` | Runner 主流程（初始化、逐資料集評測、匯出） | 不實作具體的評測或解析邏輯 |
+| `main.py` | 定義 CLI 參數與各命令 handler | 不實作評測邏輯（re-export Runner）|
+| `core/validators.py` | 驗證 config 結構與資料集格式 | 不修改 config 或資料集 |
 
 ---
 
@@ -271,42 +275,56 @@ ResultsExporter.export()  →  results/results_{timestamp}.json
 ### 5.1 新增 LLM 後端
 
 ```python
-# 1. 在 models.py 中繼承 LLM
+# 1. 在 models/ 下新增檔案，繼承 LLM（core/abc.py）
 class MyNewModel(LLM):
     def validate_config(self) -> bool:
         # 驗證必要的 config 欄位
         ...
         return True
 
-    def call(self, question_text: str, prompt_lang: str = "zh") -> ChatCompletion:
+    def call(self, question_text: str, prompt_lang: str = "zh", ...) -> ChatCompletion:
         # 呼叫 API 並回傳 OpenAI ChatCompletion 格式
         ...
 
-# 2. 向工廠註冊
+# 2. 在 models/__init__.py 向工廠註冊
 LLMFactory.register_llm("my_backend", MyNewModel)
 ```
 
-**注意**：`call()` 的回傳值必須相容於 `ChatCompletion` 格式，`evaluators.py` 依賴這個介面。若目標 API 格式不同，應在 `call()` 內部轉換，而非修改 `evaluators.py`。
+**注意**：`call()` 的回傳值必須相容於 `ChatCompletion` 格式，`runners/evaluator.py` 依賴這個介面。
+若目標 API 格式不同，應在 `call()` 內部轉換，而非修改 evaluator
+（範例：`models/responses.py` 將 Responses API 回應轉為 ChatCompletion）。
 
-### 5.2 新增評測策略
+### 5.2 新增評測方法（Extractor + Scorer）
 
 ```python
-# 1. 在 evaluation_strategies.py 中繼承 EvaluationStrategy
-class MyStrategy(EvaluationStrategy):
-    def get_strategy_name(self) -> str:
-        return "my_strategy"  # 對應 config.yaml 中的 evaluation_method
+# 1. 在 metrics/extractors/ 與 metrics/scorers/ 各新增一個類別
+class MyExtractor(Extractor):
+    def get_name(self) -> str:
+        return "my_method"
 
-    def extract_answer(self, llm_output: str) -> Optional[str]:
-        # 從 llm_output 中提取答案字母，回傳 None 表示無法提取
+    def extract(self, llm_output: str) -> Optional[str]:
+        # 從 llm_output 中提取答案，回傳 None 表示無法提取
         ...
 
-# 2. 向工廠註冊
-EvaluationStrategyFactory.register_strategy("my_strategy", MyStrategy)
+class MyScorer(Scorer):
+    def get_name(self) -> str:
+        return "my_method"
+
+    def normalize(self, answer: str) -> str: ...
+    def score(self, predicted: str, gold: str) -> bool: ...
+
+# 2. 在 metrics/__init__.py 的 PRESETS 登錄（或呼叫 register_preset()）
+PRESETS["my_method"] = (MyExtractor, MyScorer)
 ```
+
+若評測需要不同的請求/解析形態（如 logprobs、tool calls、圖片、音檔），
+在 `Extractor` ABC 宣告新的 capability flag，並在 `Evaluator._PIPELINES`
+（`runners/evaluator.py`）註冊對應的 pipeline method——**不得**在 evaluator 中加 if/elif。
 
 ### 5.3 新增輸出格式
 
-繼承對應的 Exporter 基底類別，向 `ResultsExporterFactory` 註冊，並更新 `cli.py` 的 `--export` choices（若為公開格式）。
+繼承 `ResultsExporter`（core/abc.py），向 `exporters/` 的 `ResultsExporterFactory` 註冊；
+`--export` 的 choices 由工廠動態產生，無需另行修改 CLI。
 
 ### 5.4 新增 CLI 參數
 
@@ -556,7 +574,7 @@ model:
 evaluation:
   dataset_paths:              # 必填，list 格式（即使只有一個路徑）
     - "datasets/dataset1/"
-  evaluation_method: "box"   # 必填："pattern" | "box" | "custom_regex"
+  evaluation_method: "box"   # 必填，可用值見 metrics/PRESETS（twinkle-eval --list-strategies）
   system_prompt:             # box method 必填
     zh: "..."
     en: "..."
@@ -675,7 +693,7 @@ results/
 |------|------|
 | `--config`, `-c` | 指定設定檔路徑（預設 `config.yaml`） |
 | `--init [TEMPLATE]` | 產生設定檔範本。不帶參數列出所有可用範本，`--init <name>` 產生單一範本，`--init all` 產生全部 |
-| `--validate` | 僅驗證設定檔與資料集格式是否正確（不呼叫 API） |
+| `--validate` | 驗證設定檔與資料集格式，並對 API 端點做一次試打確認可連線 |
 | `--dry-run` | 載入設定檔與資料集，顯示評測計畫但不呼叫 API |
 | `--resume TIMESTAMP` | 從指定時間戳記的中斷點繼續評測（跳過已完成的題目） |
 | `--export` | 輸出格式（json / csv / html / google_sheets） |
@@ -684,6 +702,8 @@ results/
 | `--list-exporters` | 列出可用的輸出格式 |
 | `--benchmark` | 執行 LLM 效能基準測試 |
 | `--download-dataset` | 從 HuggingFace Hub 下載資料集 |
+| `--convert-to-html JSON_FILE` | 將 JSON 結果檔轉換為 HTML 報表 |
+| `--convert-to-excel JSONL_FILE` | 將逐題結果 JSONL 轉換為 Excel（需 `twinkle-eval[excel]`） |
 
 ### 設定檔範本管理
 
@@ -769,77 +789,60 @@ twinkle-eval --init all              # 產生全部範本到 configs/
 這條規則的目的是彌補 coding agent 看不到自己 blind spot 的弱點。歷史上多次發生 coding agent 自信滿滿 push 出去後才被使用者或其他 reviewer 找到明顯 bug 的情況，這條規則就是為了把這個 loop 內建到開發流程裡。
 
 ### 衝突確認
-確認本 PR 的修改是否與以下開放中 PR 有衝突：
 
-| 開放 PR | 主要修改模組 |
-|---------|------------|
-| #8  (math eval) | `evaluation_strategies.py`、`evaluators.py`、`dataset.py` |
-| #9  (rate limit) | `evaluators.py`、JSONL 輸出 |
-| #15 (HF upload) | `cli.py`、`main.py`、`pyproject.toml` |
-| #17 (MMLU fix)  | `dataset.py`、`evaluators.py` |
-| #18 (reasoning token) | `evaluation_strategies.py`、`evaluators.py` |
-| #19 (Slurm + HF) | `cli.py`、`main.py`、scripts/ |
-
-若有衝突，PR 描述中必須說明如何解決。
+開 PR 前以 `gh pr list`（或 GitHub 頁面）確認當前開放中的 PR，
+檢查本 PR 修改的模組是否與其重疊。若有衝突，PR 描述中必須說明如何解決。
 
 ---
 
 ## 14. 專案現況快照
 
+> 本節為時間點快照（最後更新：2026-07，v2.8.x）。版本歷史與最新變更以
+> `CHANGELOG.md` 為準；開放中的 Issue/PR 以 GitHub 為準。
+
 ### 基本資訊
 
 - **Repo**: https://github.com/ai-twinkle/Eval
 - **套件名稱**: `twinkle-eval`（PyPI）
-- **版本**: `1.1.2`（pyproject.toml）/ `1.1.0`（`__init__.py`，不一致待修正）
+- **版本**: `2.8.0`（`pyproject.toml` 與 `__init__.py` 必須同步）
 - **授權**: MIT
-- **Python**: ≥3.11（pyproject.toml）/ classifiers 含 3.10（有矛盾，待修正）
+- **Python**: ≥3.11
+
+### 支援的評測方法（metrics/PRESETS）
+
+`pattern`、`box`、`logit`、`math`、`custom_regex`、`bfcl_fc`、`bfcl_prompt`、
+`ifeval`、`ifbench`、`niah`、`ragas`、`text2sql`、`regex_match`、`asr`、`vision_mcq`
+
+### LLM 後端（llm_api.type）
+
+`openai`（Chat Completions 相容）、`openai_responses`（Responses API）、`whisper`（音檔轉錄）
 
 ### 主要依賴
 
 | 套件 | 用途 |
 |------|------|
 | openai ≥1.93.0 | OpenAI 相容 API |
-| pandas ≥2.3.0 | 資料集處理 |
-| numpy ~2.3.0 | 統計計算 |
-| datasets ≥3.2.0 | HuggingFace 資料集下載 |
-| fastparquet | Parquet 格式讀取 |
-| google-api-python-client | Google Drive / Sheets |
-| pyyaml | YAML 解析 |
-| httpx | HTTP 請求 |
-| tqdm | 進度條 |
+| pandas / numpy | 資料集處理與統計 |
+| datasets | HuggingFace 資料集下載 |
+| pyyaml / httpx / tqdm | 設定解析、HTTP、進度條 |
 
-### 已知問題（需處理）
+選用功能透過 optional-dependencies 安裝：`math`、`tool`、`asr`、`vision`、
+`ifeval`、`ifbench`、`excel`、`slurm`（見 `pyproject.toml`）。
 
-| 嚴重度 | 問題 | 對應 Issue/PR |
-|--------|------|--------------|
-| 🔴 Bug | `__email__` 未定義，呼叫 `get_info()` 會 NameError | #10 |
-| 🔴 Bug | 單一 `dataset_paths` 時評測靜默失敗，無任何提示 | #6 |
-| 🔴 Bug | `evaluators.py` 多檔評測結果被覆蓋（`'w'` 應改 `'a'`） | PR #17 |
-| 🟡 Bug | `main.py` 相對 import 在直接執行時會 ImportError | #11、PR #12 |
-| 🟡 Bug | NVIDIA GPT-OSS API 回應格式差異導致 NoneType 錯誤 | #4 |
-| 🟡 Bug | inline think/reasoning token 干擾答案解析 | PR #18 |
-| 🟡 不一致 | pyproject.toml version=1.1.2 vs `__init__.py` version=1.1.0 | — |
-| 🟡 不一致 | requires-python=3.11 vs classifiers 含 3.10 | — |
-| 🟡 設計缺陷 | `evaluators.py` 選項 hardcode A/B/C/D | PR #17 修正中 |
-| 🔵 Feature | HuggingFace Dataset 上傳（`--hf-repo-id`） | #14、PR #15 |
-| 🔵 Feature | Slurm 多節點分散式評測 | PR #19 |
-| 🔵 Feature | Math 評測策略（`\boxed{}` + MathRuler）| PR #8 |
-| 🔵 Feature | Logit-based 評測支援 | #7 |
-| 🔵 文件 | PyPI 正式發布準備（CHANGELOG、雙語 README）| #13 |
+### 已知問題與技術債（需處理）
 
-### 開放 PR 與建議合併順序
-
-| PR | 類型 | 摘要 | 作者 | 建議優先序 |
-|----|------|------|------|----------|
-| #17 | Bug Fix | MMLU 正規化 + 結果累積修正 + 動態選項 | whats2000 | 1（最高） |
-| #18 | Bug Fix | inline reasoning token 解析修正 | whats2000 | 2 |
-| #12 | Bug Fix | 相對 import → 絕對 import | viiccwen | 3 |
-| #9  | Bug Fix | Rate limit 修正、JSONL 詳細資訊 | dave-apmic | 4 |
-| #15 | Feature | HuggingFace Dataset 上傳 | whats2000 | 5 |
-| #8  | Feature | Math 評測 + per-dataset override + pass@k | cyc00518 | 6 |
-| #19 | Feature | Slurm 分散式評測 + HF 整合 | whats2000 | 7（最後） |
-
-**注意**：PR #15 與 #19 均實作 HF 上傳功能，合入 #15 前需與 #19 協調，避免重複實作。
+| 嚴重度 | 問題 |
+|--------|------|
+| 🔴 基礎設施 | CI 沒有執行測試與 lint（`.github/workflows/` 只有 PyPI 發布），建議新增 PR-triggered workflow |
+| 🟡 測試 | `tests/test_pr17_overwrite_bug.py` 依賴 `/tmp/eval_two_files/` 本機 fixture，乾淨環境必失敗，應改為自建 fixture |
+| 🟡 型別 | mypy 尚有大量錯誤，與宣稱的 strict mode 不符；建議由 `core/` 開始漸進收斂 |
+| 🟡 架構 | `main.py` 的 `main()` 為長串 if 分派器，應改為 command handler registry |
+| 🟡 架構 | `WhisperModel` 在 evaluator 中以類別名稱字串判斷，應改為 LLM ABC 上的 capability flag |
+| 🟡 重複 | ifeval / ifbench scorer 有整段相同的 helper（`_remove_markdown` 等），且 checker 失敗被 `except Exception: return False` 吞掉 |
+| 🟡 例外 | models / datasets / exporters 多處 raise 裸 `ValueError` 而非 `exceptions.py` 的自訂例外 |
+| 🟡 效能量測 | benchmark runner 的請求計數非原子；非串流下 TTFT/TPOT 無意義 |
+| 🔵 文件 | `README_EN.md` 落後中文 README（CLI 選項表等） |
+| 🔵 已知限制 | `--resume` 回填後 `unparsed_count` 僅涵蓋補跑題目；IFEval `prompt_loose` 對回填題目低估；分散式 shard 不支援 resume |
 
 ---
 

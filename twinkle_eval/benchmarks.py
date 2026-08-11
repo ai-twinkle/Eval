@@ -14,7 +14,6 @@ from typing import Any, Dict, List, Optional
 
 from .core.logger import log_error, log_info, log_warning
 
-
 # ---------------------------------------------------------------------------
 # Benchmark Registry
 # ---------------------------------------------------------------------------
@@ -359,7 +358,7 @@ def _download_hf_benchmark(
     skipped_gated: list[str],
 ) -> None:
     """下載 HuggingFace 資料集到 datasets/{name}/。"""
-    from datasets import get_dataset_config_names, load_dataset
+    from datasets import get_dataset_config_names
 
     hf_id = info["hf_id"]
     split = info.get("split", "test")
@@ -399,7 +398,7 @@ def _download_hf_benchmark(
                         log_warning(f"  跳過子集 {config}: {e}")
 
     except Exception as e:
-        if info.get("gated") and "401" in str(e) or "403" in str(e):
+        if info.get("gated") and ("401" in str(e) or "403" in str(e)):
             raise _SkipGatedError()
         raise
 
@@ -585,8 +584,10 @@ def _spider2_json_to_jsonl(json_path: str, jsonl_path: str) -> None:
                 "id": item.get("instance_id", item.get("id", "")),
                 "question": item.get("instruction", item.get("question", "")),
                 "answer": json.dumps(
-                    {"sql": item.get("gold", item.get("sql", "")),
-                     "db_id": item.get("db", item.get("db_id", ""))},
+                    {
+                        "sql": item.get("gold", item.get("sql", "")),
+                        "db_id": item.get("db", item.get("db_id", "")),
+                    },
                     ensure_ascii=False,
                 ),
                 "db_id": item.get("db", item.get("db_id", "")),
@@ -616,7 +617,8 @@ def _download_longbench(url: str, dest: str) -> None:
         with zf.open(matched[0]) as src, open(output_path, "wb") as dst:
             dst.write(src.read())
 
-    line_count = sum(1 for _ in open(output_path, "r", encoding="utf-8"))
+    with open(output_path, "r", encoding="utf-8") as f:
+        line_count = sum(1 for _ in f)
     log_info(f"  完成：{line_count} 筆 → {output_path}")
 
 
@@ -656,9 +658,7 @@ def _report_download(dest: str) -> None:
     """報告下載結果的檔案統計。"""
     total_files = sum(len(files) for _, _, files in os.walk(dest))
     total_size = sum(
-        os.path.getsize(os.path.join(dp, f))
-        for dp, _, fns in os.walk(dest)
-        for f in fns
+        os.path.getsize(os.path.join(dp, f)) for dp, _, fns in os.walk(dest) for f in fns
     )
     size_mb = total_size / (1024 * 1024)
     log_info(f"  下載完成：{total_files} 個檔案，共 {size_mb:.1f} MB → {dest}")

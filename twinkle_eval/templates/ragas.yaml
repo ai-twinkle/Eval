@@ -1,8 +1,10 @@
 llm_api:
+  type: "openai"                                       # LLM 後端（openai | openai_responses | whisper）
   base_url: "http://your-openai-compatible-server/v1"  # API 伺服器網址（此 LLM 作為 judge）
   api_key: "your-api-key"                              # API 金鑰
   disable_ssl_verify: false                            # 是否停用 SSL 驗證
   api_rate_limit: -1                                   # 每秒請求限制（-1 為不限制）
+  max_workers: null                                    # 並行請求執行緒數（null 使用系統預設）
   max_retries: 3                                       # API 呼叫失敗時的重試次數
   timeout: 60                                          # 單次請求逾時（秒）
 

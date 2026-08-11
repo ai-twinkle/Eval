@@ -111,10 +111,7 @@ def score_ifeval(
         strict_results.append(strict_ok)
 
         # Loose：任一 variant 通過即可
-        loose_ok = any(
-            _check_instruction(inst_id, kw, variant)
-            for variant in loose_variants
-        )
+        loose_ok = any(_check_instruction(inst_id, kw, variant) for variant in loose_variants)
         loose_results.append(loose_ok)
 
     return {

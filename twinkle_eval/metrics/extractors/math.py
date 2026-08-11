@@ -33,7 +33,7 @@ class MathExtractor(Extractor):
                     depth -= 1
                 i += 1
             if depth == 0:
-                results.append(text[start:i - 1])
+                results.append(text[start : i - 1])
         return results
 
     def extract(self, llm_output: str) -> Optional[str]:
