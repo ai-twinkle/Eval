@@ -7,7 +7,35 @@ from openai import OpenAI
 from openai.types.chat import ChatCompletion
 
 from twinkle_eval.core.abc import LLM
-from twinkle_eval.core.logger import log_error
+from twinkle_eval.core.logger import log_error, log_warning
+
+
+# 被 API 拒絕時可安全移除的選用取樣參數（新版推理模型多半不支援這些參數）
+_DROPPABLE_PARAMS = {"temperature", "top_p", "frequency_penalty", "presence_penalty"}
+
+
+def _rejected_parameter(error: Exception) -> tuple[Optional[str], Optional[str]]:
+    """解析錯誤，回傳 (被拒絕的參數名稱, 錯誤代碼)；非參數拒絕錯誤則回傳 (None, None)。
+
+    新版 OpenAI 推理模型（o 系列、gpt-5 系列等）會以 400 拒絕部分參數：
+    - unsupported_parameter：參數本身不支援（如 max_tokens、top_p）
+    - unsupported_value：參數值不支援（如 temperature 僅接受預設值）
+    """
+    body = getattr(error, "body", None)
+    if isinstance(body, dict):
+        err = body.get("error", body)
+        if isinstance(err, dict) and err.get("code") in (
+            "unsupported_parameter",
+            "unsupported_value",
+        ):
+            param = err.get("param")
+            if isinstance(param, str) and param:
+                return param, err.get("code")
+    # 後備：部分相容端點不回傳結構化 body，僅能從訊息判斷 max_tokens 的情況
+    msg = str(error)
+    if "max_tokens" in msg and "max_completion_tokens" in msg:
+        return "max_tokens", "unsupported_parameter"
+    return None, None
 
 
 class OpenAIModel(LLM):
@@ -17,6 +45,10 @@ class OpenAIModel(LLM):
         super().__init__(config)
         self.validate_config()
         self._initialize_client()
+        # 首次遇到 API 回報 max_tokens 不支援後切為 True，之後直接送 max_completion_tokens
+        self._use_max_completion_tokens = False
+        # 已確認此模型不支援的選用參數，後續請求直接略過，不再每題撞一次 400
+        self._unsupported_params: set = set()
 
     def validate_config(self) -> bool:
         """驗證 OpenAI 相容格式所需的配置欄位。"""
@@ -98,11 +130,14 @@ class OpenAIModel(LLM):
         model_config = self.config["model"]
         overrides = model_overrides or {}
 
+        max_tokens_param = (
+            "max_completion_tokens" if self._use_max_completion_tokens else "max_tokens"
+        )
         payload: Dict[str, Any] = {
             "model": model_config["name"],
             "temperature": overrides.get("temperature", model_config["temperature"]),
             "top_p": overrides.get("top_p", model_config["top_p"]),
-            "max_tokens": overrides.get("max_tokens", model_config["max_tokens"]),
+            max_tokens_param: overrides.get("max_tokens", model_config["max_tokens"]),
             "messages": built_messages,
         }
 
@@ -123,12 +158,47 @@ class OpenAIModel(LLM):
         if model_config["extra_body"]:
             payload["extra_body"] = model_config["extra_body"]
 
-        try:
-            response = self.client.chat.completions.create(**payload)
-            return response
-        except Exception as e:
-            log_error(f"LLM API 錯誤: {e}")
-            raise e
+        # 移除先前已確認此模型不支援的參數
+        for param in self._unsupported_params:
+            payload.pop(param, None)
+
+        # 每次成功的調整都會從 payload 移除或改名一個參數，迴圈必然終止
+        while True:
+            try:
+                return self.client.chat.completions.create(**payload)
+            except Exception as e:
+                if self._adapt_payload_for_error(payload, e):
+                    continue
+                log_error(f"LLM API 錯誤: {e}")
+                raise e
+
+    def _adapt_payload_for_error(self, payload: Dict[str, Any], error: Exception) -> bool:
+        """依 API 的參數拒絕錯誤調整 payload，回傳是否已調整（可重試）。
+
+        - max_tokens 被拒 → 改名為 max_completion_tokens
+        - 其他選用取樣參數被拒 → 直接移除（模型將使用其預設值）
+        調整結果記錄在實例狀態，後續請求直接套用，不再重複撞錯。
+        """
+        param, code = _rejected_parameter(error)
+        if param is None:
+            return False
+        model_name = self.config["model"]["name"]
+
+        if param == "max_tokens" and "max_tokens" in payload:
+            log_warning(
+                f"模型 {model_name} 不支援 max_tokens，自動改用 max_completion_tokens 重試"
+            )
+            self._use_max_completion_tokens = True
+            payload["max_completion_tokens"] = payload.pop("max_tokens")
+            return True
+
+        if param in _DROPPABLE_PARAMS and param in payload:
+            log_warning(f"模型 {model_name} 不支援 {param}（{code}），自動移除該參數重試")
+            self._unsupported_params.add(param)
+            payload.pop(param)
+            return True
+
+        return False
 
     def score_continuation(self, context: str, continuation: str) -> float:
         """計算 log P(continuation | context)，用於 logit 評測策略。
