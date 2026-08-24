@@ -159,16 +159,33 @@ class OpenAIModel(LLM):
                 return float("-inf")
 
             context_char_len = len(context)
-            cumulative = 0
-            logprob_sum = 0.0
-            found = False
-            for token, lp in zip(tokens, token_logprobs):
-                if cumulative >= context_char_len and lp is not None:
-                    logprob_sum += lp
-                    found = True
-                cumulative += len(token)
+            text_offset = getattr(response.choices[0].logprobs, "text_offset", None)
 
-            return logprob_sum if found else float("-inf")
+            if text_offset:
+                # text_offset 是每個 token 在 prompt 中的真實字元位置，由 API 提供。
+                #
+                # 不可改用「累加 len(token)」推算：token 的『字串長度』不等於它對
+                # prompt『貢獻的字元數』。最明顯的是特殊 token——gemma 的 "<bos>"
+                # 字串長 5，但貢獻 0 個字元，於是累加值從第一個 token 起就超前 5 格，
+                # 邊界提早觸發，把 context 尾端的 token 折進每個選項的分數裡。
+                # 這個偏移在不同選項間不一定相同，足以翻轉 argmax。
+                # （Qwen 的 server 不在 echo 回傳 BOS，因此同一段程式在 Qwen 上
+                #   完全看不出問題，只有 gemma 這類會回傳 BOS 的模型才發作。）
+                logprob_sum = 0.0
+                found = False
+                for offset, lp in zip(text_offset, token_logprobs):
+                    if offset >= context_char_len and lp is not None:
+                        logprob_sum += lp
+                        found = True
+                return logprob_sum if found else float("-inf")
+
+            # API 未提供 text_offset：無法可靠定位邊界。回傳 -inf 讓上層察覺，
+            # 而不是用會靜默算錯的字元累加去猜。
+            log_error(
+                f"score_continuation：API 未回傳 text_offset（模型: {model_config['name']}），"
+                "無法可靠切分 context/continuation 邊界"
+            )
+            return float("-inf")
 
         except Exception as e:
             log_error(f"score_continuation 失敗（模型: {model_config['name']}）: {e}")
