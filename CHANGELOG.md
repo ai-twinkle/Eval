@@ -5,6 +5,57 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.9.0] - 2026-08-25
+
+> ⚠️ **本版會改變評測分數。** 修正了題目 metadata 欄位被送進 prompt 的問題（#143）。
+> 含 `id` / `domain` / `discipline` / `subfield` / `category` 等欄位的資料集
+> （GPQA、SuperGPQA、MMLU-Redux、vision_mcq）分數預期會**下降**，因為先前的 prompt
+> 夾帶了學科分類，等同免費提示。與舊版分數不可直接比較，請重跑基準。
+
+### Added
+- `twinkle_eval.datasets.index_to_label()`：`_index_to_label()` 提升為公開 API（保留舊名稱別名）
+- `runners.evaluator.detect_option_keys()`：動態偵測選項鍵，支援任意數量選項
+- `runners.evaluator.build_question_text()`：統一三條路徑的題目組建邏輯
+- `runners.evaluator.describe_dropped_fields()`：每個檔案提示一次哪些非選項欄位不會進入
+  prompt，讓「作答必需的欄位（hint、context）被靜默丟棄」變成可觀察，而非無聲的分數下降
+- `tests/test_shuffle_options.py`：38 個測試，涵蓋選項偵測、重排、prompt 組建、語意標籤保護
+  與 runner 單一實作
+
+### Fixed
+- **題目 metadata 被當成選項送進 prompt**（#143）：文字與 logit 路徑以
+  「排除 `question` / `answer` 後其餘欄位全印」的方式組題目，導致 `id`、`domain`、
+  `discipline`、`category` 等欄位進入 prompt。這既是雜訊，學科分類欄位更等同答題提示。
+  **`shuffle_options` 預設為 `false`，預設路徑即受影響**，此行為自 2.8.0 以前即存在。
+  現改為：偵測得到選項鍵時只列出選項；偵測不到時（Text-to-SQL 等）維持列出其餘欄位，
+  因為 `db_id` / `evidence` 本來就該進 prompt。vision 路徑一併統一（原本漏排除 `category`）。
+  **僅解決選擇題路徑**——沒有選項鍵的資料集（NIAH 洩漏 `needle_depth`、RAGAS 洩漏
+  `answer_type`、BBH 洩漏 `subtask`）仍有同類問題，需要區分「哪些非選項欄位該進 prompt」，
+  另行追蹤於 #146。
+- **選項重排硬編碼 A/B/C/D**（#140）：`shuffle_question_options()` 的註解宣稱動態偵測，
+  實作仍寫死 `["A","B","C","D"]`（違反 §2 原則 C）。MMLU-Pro（A–J）、SuperGPQA（4–10 選項）
+  開啟 `shuffle_options: true` 時，E 之後的選項被靜默丟棄；正解落在 E–J 時 `answer` 無法回填，
+  該題直接被跳過。現以 `detect_option_keys()` 動態偵測，並對未從 A 起始的選項鍵
+  （如 T/F、Y/N）提供單字元回退。這類標籤帶有語意，**不會被重排**——重排會讓 `T` 指向「否」，
+  使正確作答被判為錯。偵測結果少於兩個選項時視為沒有選項，避免單一 `A` 欄位讓其餘欄位
+  （如 `context`）被丟棄。
+- **選項重排丟棄非選項欄位**（#141）：重排時從空 dict 重建題目，`image_path` / `id` 等欄位
+  全部遺失。vision 路徑在重排後才讀圖片欄位，導致 `vision_mcq` + `shuffle_options: true`
+  每題都被 skip、**評測到零題**。現以 `dict(question_data)` 為基底，只覆寫選項鍵與 `answer`。
+- 選項重排改以「原始選項鍵」而非選項文字定位正解，修正兩個選項文字相同時 `answer`
+  指向錯誤選項的問題。
+- 無法在選項鍵中定位正解時原樣回傳不重排（取代原本回填失敗後拋 KeyError 被跳過的行為），
+  並降為 warning——這是資料格式問題，不是執行錯誤。
+
+### Changed
+- **`TwinkleEvalRunner` 去重**（#142）：`main.py` 與 `runners/standard.py` 各有一份實作且已分歧
+  （相似度約 68%）。`main.py` 那份是實際被使用的、且是功能超集（多了 `--resume` 的
+  `completed_records` 參數），`runners/standard.py` 則是無人 import 的死程式碼。
+  註：`--resume` 本身目前是壞的（JSONL 缺 `file` 欄位，見 #145），此處只是忠實保留既有行為。
+  現以 `main.py` 的實作為準搬入 `runners/standard.py`，`main.py` 改為重新匯出，符合 §4
+  「main.py 不實作具體評測邏輯」。`twinkle_eval`、`twinkle_eval.main`、`twinkle_eval.runners`、
+  `twinkle_eval.runners.standard` 四條 import 路徑皆維持可用（原則 F），行為不變。
+- `results_{timestamp}.json` 的 `accuracy_std` 在 `repeat_runs: 1` 時由 `0` 改為 `0.0`
+  （搬移時採用明確的 `float()` 轉型）。JSON number 語意相同，下游 parser 不受影響。
 ## [2.8.1] - 2026-09-11
 
 本版為 PR #136（`Fix/audit bugfix batch`，作者 @dave-apmic）前半段的獨立修復批次，
