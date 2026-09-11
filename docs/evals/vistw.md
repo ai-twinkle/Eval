@@ -145,7 +145,29 @@ logging:
   level: "INFO"
 ```
 
-可直接沿用 `twinkle_eval/templates/vision_mcq.yaml`，只需改 `dataset_paths`。
+### 兩個評測協定
+
+本 benchmark 提供兩個範本，**分數不可互相比較**：
+
+| 範本 | 用途 | prompt | 抽取 |
+|------|------|--------|------|
+| `vistw_mcq.yaml` | 本專案預設，評測模型用 | 要求 `\boxed{}` | `\boxed{}` 優先 |
+| `vistw_mcq_native.yaml` | 與官方 leaderboard 對比用 | 逐字取自官方 `BASELINE_PROMPT`（`答案: $字母`） | regex `答案:` / `Answer:` |
+
+```bash
+twinkle-eval --init vistw_mcq          # 本專案協定
+twinkle-eval --init vistw_mcq_native   # 官方相容協定
+```
+
+即使用 native 範本，仍與官方有一處**刻意保留**的差異：官方在兩段 regex 都失敗時會
+**呼叫 LLM 當 parser** 把選項抽出來，本專案不實作這一段。
+
+理由是它會把「模型答得多爛」與「parser 多會猜」混在一起，牴觸 §1.4 的客觀與可重現目標。
+代價是我們的 unparsed 被判錯、官方被救回來，因此本專案分數會**系統性偏低**。
+
+> **回報 VisTW 分數時必須一併回報 `unparsed_rate`**（`results_*.json` 的
+> `average_unparsed_rate`）。若它明顯大於 0，分數差異的主因就是抽取協定而非模型能力。
+> 這是本專案對這個差異的處理方式：不隱藏，而是讓它可見。
 
 ---
 
