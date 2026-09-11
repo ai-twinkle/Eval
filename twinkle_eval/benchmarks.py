@@ -399,7 +399,7 @@ def _download_hf_benchmark(
                         log_warning(f"  跳過子集 {config}: {e}")
 
     except Exception as e:
-        if info.get("gated") and "401" in str(e) or "403" in str(e):
+        if info.get("gated") and ("401" in str(e) or "403" in str(e)):
             raise _SkipGatedError()
         raise
 
@@ -585,8 +585,10 @@ def _spider2_json_to_jsonl(json_path: str, jsonl_path: str) -> None:
                 "id": item.get("instance_id", item.get("id", "")),
                 "question": item.get("instruction", item.get("question", "")),
                 "answer": json.dumps(
-                    {"sql": item.get("gold", item.get("sql", "")),
-                     "db_id": item.get("db", item.get("db_id", ""))},
+                    {
+                        "sql": item.get("gold", item.get("sql", "")),
+                        "db_id": item.get("db", item.get("db_id", "")),
+                    },
                     ensure_ascii=False,
                 ),
                 "db_id": item.get("db", item.get("db_id", "")),
@@ -656,9 +658,7 @@ def _report_download(dest: str) -> None:
     """報告下載結果的檔案統計。"""
     total_files = sum(len(files) for _, _, files in os.walk(dest))
     total_size = sum(
-        os.path.getsize(os.path.join(dp, f))
-        for dp, _, fns in os.walk(dest)
-        for f in fns
+        os.path.getsize(os.path.join(dp, f)) for dp, _, fns in os.walk(dest) for f in fns
     )
     size_mb = total_size / (1024 * 1024)
     log_info(f"  下載完成：{total_files} 個檔案，共 {size_mb:.1f} MB → {dest}")
