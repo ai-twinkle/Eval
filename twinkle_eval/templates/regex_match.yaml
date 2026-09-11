@@ -25,6 +25,11 @@ evaluation:
   # 預設 pattern 為 "the answer is (.*)"，匹配 BBH 標準 CoT 結尾格式。
   evaluation_method: "regex_match"
 
+  # BBH 是英文資料集，明示語言對應以取用 system_prompt 的 en 鍵。
+  # 未設定時 prompt_lang 預設為 "zh"。
+  datasets_prompt_map:
+    "datasets/example/bbh/": "en"
+
   system_prompt:
     en: "Follow each question's instructions carefully. Think step by step. You MUST end your response with exactly this format: 'the answer is {your answer}' where {your answer} is the option like (A), (B), etc., or the exact value like Yes, No, True, False, valid, invalid, or the computed result."
 
