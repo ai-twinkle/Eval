@@ -13,6 +13,7 @@ This project is a Large Language Model (LLM) evaluation framework that uses conc
 
 ## Table of Contents
 
+- [Claude Code Skills](#claude-code-skills)
 - [Key Features](#key-features)
 - [Performance Metrics](#performance-metrics)
 - [Technical Highlights](#technical-highlights)
@@ -32,6 +33,36 @@ This project is a Large Language Model (LLM) evaluation framework that uses conc
 - [License](#license)
 - [Citation](#citation)
 - [Acknowledgments](#acknowledgments)
+
+## Claude Code Skills
+
+This repository ships two [Claude Code](https://claude.com/claude-code) skills. They are version-controlled with the repo, so they work as soon as you clone it -- no extra installation. They turn the longest, easiest-to-miss procedures in `CLAUDE.md` into executable guidance.
+
+| Skill | Purpose |
+|-------|---------|
+| `/run-eval` | Build a config.yaml, download datasets, run an evaluation, read results, diagnose bad scores |
+| `/add-benchmark` | The full procedure for adding a new evaluation benchmark (for contributors) |
+
+Skills activate automatically when the conversation is relevant, or you can invoke them directly:
+
+```
+/run-eval          evaluate the model on localhost:8000 with TMMLU+
+/add-benchmark     add an MMLU-CF benchmark
+```
+
+**`/run-eval`** covers the config differences across all 15 `evaluation_method` values, the short
+names for the 27 built-in downloadable benchmarks, `--validate` / `--dry-run` / `--resume`, and the
+naming rules that keep local configs (with API keys) out of version control. It ships a full
+[config field reference](.claude/skills/run-eval/references/config-reference.md), plus a diagnostic
+section: when scores look wrong, check `unparsed_rate` first to tell "the model got it wrong" apart
+from "the extractor did not match the output format".
+
+**`/add-benchmark`** expands the mandatory process in `CLAUDE.md` §6 into a checklist: create the
+Milestone and 6 Issues first, example dataset requirements, the Extractor + Scorer skeleton and
+`PRESETS` registration, the evaluator's seven data-flow routes, score tolerance thresholds, speed
+comparison, docs and test requirements, and the mandatory reviewer agent before any push.
+
+---
 
 ## Key Features
 

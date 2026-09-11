@@ -19,6 +19,7 @@ Twinkle Eval 是一個以**並行 API 請求**為核心的 LLM 評測框架，�
 
 ## 目錄
 
+- [Claude Code Skills](#claude-code-skills)
 - [為什麼選擇 Twinkle Eval](#為什麼選擇-twinkle-eval)
 - [支援的評測資料集](#支援的評測資料集)
 - [評測方法一覽](#評測方法一覽)
@@ -33,6 +34,42 @@ Twinkle Eval 是一個以**並行 API 請求**為核心的 LLM 評測框架，�
 - [授權條款](#授權條款)
 - [引用](#引用)
 - [致謝](#致謝)
+
+---
+
+## Claude Code Skills
+
+本專案內建兩個 [Claude Code](https://claude.com/claude-code) skill，隨 repo 進版控，**clone 下來就能用**，不需要額外安裝。它們把 `CLAUDE.md` 裡最冗長、最容易漏步驟的流程變成可執行的指引。
+
+| Skill | 用途 |
+|-------|------|
+| `/run-eval` | 建立 config.yaml、下載資料集、跑評測、讀結果、診斷分數異常 |
+| `/add-benchmark` | 新增一個評測 benchmark 的完整流程（貢獻者用） |
+
+Skill 會在對話內容相關時**自動生效**，也可以直接輸入斜線指令叫用：
+
+```
+/run-eval          我要用 TMMLU+ 評測 localhost:8000 上的模型
+/add-benchmark     幫我加一個 MMLU-CF 評測
+```
+
+### `/run-eval` — 跑評測
+
+涵蓋 15 種 `evaluation_method` 的 config 差異、27 個內建可下載 benchmark 的短名稱、
+`--validate` / `--dry-run` / `--resume` 的用法，以及本機 config 的命名規則（避免 API 金鑰進版控）。
+
+附一份完整的 [config 欄位參照](.claude/skills/run-eval/references/config-reference.md)，
+逐一列出每種評測方法的必填欄位與 `strategy_config` 參數。
+
+最實用的是**診斷章節**：分數異常低時，先看 `unparsed_rate` 區分「模型真的答錯」與
+「extractor 沒抓到輸出格式」，並列出 `box` 未設 system_prompt、推理模型的 think tag、
+`content=null` 等常見成因。
+
+### `/add-benchmark` — 新增評測方法
+
+把 `CLAUDE.md` §6 的強制流程展開成可執行清單：先建 Milestone 與 6 個 Issue（附 `gh` 指令）、
+example dataset 規格、Extractor + Scorer 骨架與 `PRESETS` 註冊、evaluator 七條資料流的分派表、
+分數容差標準、速度對比、文件與測試要求，以及 push 前的強制 reviewer agent 規定。
 
 ---
 
@@ -61,7 +98,7 @@ Twinkle Eval 是一個以**並行 API 請求**為核心的 LLM 評測框架，�
 
 ## 支援的評測資料集
 
-Twinkle Eval 內建 23 個評測資料集的下載支援，涵蓋 9 大評測類型。所有資料集皆可透過 `--download-dataset` 一鍵下載。
+Twinkle Eval 內建 27 個評測資料集的下載支援，涵蓋 9 大評測類型。所有資料集皆可透過 `--download-dataset` 一鍵下載。
 
 ### 選擇題（Multiple Choice）
 
@@ -153,6 +190,7 @@ Twinkle Eval 內建 23 個評測資料集的下載支援，涵蓋 9 大評測類
 | `ragas` | RAG | 以 LLM-as-Judge 評估 RAG 品質 |
 | `asr` | 語音辨識 | WER/CER 計算（支援 Whisper API 與 Chat Completions 多模態） |
 | `text2sql` | Text-to-SQL | SQL 執行結果比對 |
+| `vision_mcq` | 視覺多選題 | VLM 圖片理解選擇題（支援字母答案與 Yes/No 二元判斷） |
 
 ---
 
@@ -271,7 +309,7 @@ results = runner.run_evaluation(export_formats=["json", "csv"])
 | `--validate` | 驗證設定檔格式與資料集路徑 |
 | `--dry-run` | 載入設定與資料集，顯示評測計畫但不呼叫 API |
 | `--resume TIMESTAMP` | 從指定時間戳的中斷點繼續評測 |
-| `--export FORMAT [FORMAT ...]` | 輸出格式（json, csv, html） |
+| `--export FORMAT [FORMAT ...]` | 輸出格式（json, csv, html, excel, google_sheets） |
 | `--finalize-results TIMESTAMP` | 合併分散式評測碎片並重新計算指標 |
 | `--hf-repo-id REPO` | 評測完成後上傳結果至 HuggingFace |
 | `--list-llms` | 列出支援的 LLM 類型 |
@@ -344,6 +382,8 @@ logging:
 本專案歡迎使用 Coding Agent 進行開發。我們提供了完整的 [`CLAUDE.md`](CLAUDE.md) 規範文件，涵蓋專案架構、設計原則、擴充規範、PR checklist 等所有開發所需的上下文。
 
 **建議的工作流程**：讓你的 Coding Agent 在開始任何工作之前，先完整閱讀 `CLAUDE.md`，這能大幅提升產出品質並減少來回修改。
+
+使用 Claude Code 的話，本專案已內建對應的 skill，見 [Claude Code Skills](#claude-code-skills)。
 
 支援的 Coding Agent：
 
