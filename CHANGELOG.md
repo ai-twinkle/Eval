@@ -5,6 +5,61 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.8.1] - 2026-09-11
+
+本版為 PR #136（`Fix/audit bugfix batch`，作者 @dave-apmic）前半段的獨立修復批次，
+內容為不改變評測分數的 bug fix。原 PR 的其餘部分（evaluator 重構、question-level
+resume、新 feature）另行審查。
+
+### Fixed
+- **API 金鑰寫入 benchmark 結果檔**（原則 E 破口）：`--benchmark` 的輸出路徑未經
+  `_prepare_config_for_saving()` 清理，完整的 `llm_api.api_key` 會被寫進
+  `benchmark_results_*.json`。同時修正 `_prepare_config_for_saving()` 會就地刪除
+  `self.config["llm_instance"]` 的問題——那讓同一個 runner 無法重複執行
+  （第二次 `run_evaluation()` 會 `KeyError`）。
+- **`finalize` 刪除合併後的 JSONL**（原則 D 資料遺失）：rank0 的 shard 路徑與合併輸出
+  路徑相同，shard 清理會把剛合併好的結果檔一併刪掉。
+- **HTML exporter 在 `usage_total_tokens` 為 `None` 時崩潰**（`TypeError: int + NoneType`）。
+  同時修正 `llm_resoning_output` 的拼字，使推理輸出能正確顯示——writer 寫出的一直是
+  正確拼字的鍵，exporter 讀的是一個從不存在的鍵。
+- **HTML 報告未轉義模型輸出**：`question`、`correct_answer`、`predicted_answer`、
+  `llm_output`、`reasoning` 現在都經過 `html.escape()`。先前模型回應中若含 `<script>`
+  或任何標籤，會破壞報告版面或直接注入頁面。
+- **`cli.py` 的 `sys.path` hack 遮蔽 HuggingFace `datasets` 套件**：`import datasets` 會
+  解析到專案內的 `twinkle_eval/datasets/`，造成循環 import 錯誤。
+- **text2sql 的 SQL 執行逾時從未生效**：`execute_sql()` 收到 `text2sql_timeout` 後並未實際套用到 sqlite。
+- **gated dataset 檢查的運算子優先序錯誤**：`A and B or C` 導致任何含 `403` 的錯誤都被
+  當成 gated dataset 而靜默略過。
+- **`logs/` 目錄在每次 CLI 呼叫時都被建立**（改為延遲初始化），以及 log 檔名的同分鐘碰撞
+  （時間戳加到秒）。
+
+### Changed
+- **`--dry-run` 與評測啟動不再進行 Google 服務的連線檢查**。原本這些網路呼叫發生在
+  `ConfigurationManager.load_config()`，違反 §4「config.py 不做 API 呼叫」與 §12
+  「`--dry-run` 不呼叫 API」。憑證檔案的格式驗證（存在、JSON 合法、必要欄位、
+  `type == "service_account"`）全部保留。
+  ⚠️ 代價：原本在評測開始前就會擋下的「資料夾不存在或未共享」診斷（含 Service Account
+  email 與三步解法）不再出現，該失敗改為在評測結束的上傳階段才以 log 呈現。
+- **Google Sheets 匯出移除 `API_金鑰` 欄位**（30 → 29 欄）。
+  ⚠️ 既有試算表的歷史列仍保有截斷的金鑰，且在新表頭下會位移一欄，建議封存或清空舊表。
+- **`--download-dataset` 對非 gated 的 403 錯誤現在會以 exit 1 結束**，先前會靜默略過。
+- **text2sql 的 EX 評分現在真的會在 `text2sql_timeout`（預設 30 秒）中止**。
+  ⚠️ 若 gold SQL 本身逾時，該題會退回 Exact Match 評分，可能使 text2sql 分數有小幅變動。
+
+### 注意
+- 秒級時間戳**只套用到 log 檔名**。`results_{timestamp}.json` 與
+  `eval_results_{timestamp}_run{N}.jsonl` 仍為分鐘精度，同分鐘啟動兩次評測會出問題，
+  而且兩個檔案的失效方式不同：
+
+  | 檔案 | 同分鐘第二次執行 |
+  |------|----------------|
+  | `results_{timestamp}.json` | **被覆蓋**，第一次的結果消失 |
+  | `eval_results_{timestamp}_run{N}.jsonl` | **累加**（append 模式），兩次的紀錄混在同一檔 |
+
+  JSONL 的情況更麻煩：資料沒有遺失，但 `results_*.json` 的 `individual_runs.results`
+  仍指向那個檔案，任何從 JSONL 重算正確率的下游工具都會**重複計數**。
+  runner 端的時間戳變更屬於 PR #136 後半段（輸出檔名變更需依 §7 先行討論）。
+
 ## [2.8.0] - 2026-04-10
 
 ### Added
