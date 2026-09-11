@@ -1,0 +1,60 @@
+# VisTW-MCQ — 官方協定相容版
+#
+# 本範本刻意模仿官方實作（TMMMU-Benchmark/evaluation）的 prompt，
+# 讓分數能與官方 leaderboard 對比。若只是要評測模型，請用 vistw_mcq.yaml。
+#
+# ⚠️ 與官方仍有一處差異，無法以設定消除：
+#
+#   官方的抽取是三段式——system prompt 限定格式 → regex `答案:` / `Answer:`
+#   → 兩者都失敗時「呼叫 LLM 當 parser」把選項抽出來。
+#
+#   本專案刻意不實作第三段的 LLM fallback。理由是它會把「模型答得多爛」與
+#   「parser 多會猜」混在一起，牴觸 §1.4 的客觀與可重現目標。
+#
+#   代價是我們的 unparsed 會被判錯，而官方會被救回來，因此本專案的分數
+#   會系統性偏低。**回報分數時必須一併回報 unparsed_rate**，讓這個差異可見。
+#
+#   對比時請看 results_*.json 的 average_unparsed_rate。若它明顯大於 0，
+#   分數差異的主因就是抽取而非模型能力。
+#
+# 需要：pip install twinkle-eval[vision]（僅在設定 max_image_size 時用到）
+
+llm_api:
+  base_url: "http://your-openai-compatible-server/v1"
+  api_key: "your-api-key"
+  disable_ssl_verify: false
+  api_rate_limit: -1
+  max_retries: 3
+  timeout: 600
+
+model:
+  name: "model-name"
+  temperature: 0.0
+  top_p: 0.9
+  max_tokens: 2048
+  frequency_penalty: 0.0
+  presence_penalty: 0.0
+  extra_body:
+
+evaluation:
+  dataset_paths:
+    - "datasets/vistw_mcq/"     # 對比分數需用完整資料集，example 只有 21 筆
+
+  evaluation_method: "vision_mcq"
+
+  # 逐字取自官方的 BASELINE_PROMPT（simplevals/eval.py）。
+  # ⚠️ 需要 #144 合入後才會實際送出。
+  system_prompt:
+    zh: "回答以下的多選題問題。並且在回覆的最後記得講格式： 答案: $字母 而字母是 ABCDEFG 的其中一個。回答前請先一步一步(think step by step)想好答案。你必須使用中文回答。"
+    en: "Answer the following question, think step by step before answering and make sure your final answer format is as follows: Answer: $ALPHABET."
+
+  repeat_runs: 1
+  shuffle_options: false  # 官方不重排選項；且重排會丟棄 image_path（#141）
+
+  strategy_config:
+    image_field: "image_path"
+    max_image_size: null
+    image_detail: "auto"
+
+logging:
+  level: "INFO"
