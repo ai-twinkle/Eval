@@ -69,6 +69,12 @@ def detect_option_keys(question_data: Dict[str, Any]) -> List[str]:
     Returns:
         依標籤順序排列的選項鍵列表；無選項時回傳空列表。
     """
+    # 單一大寫字母一律視為候選選項鍵（涵蓋 A–D、不連續的 A/B/C/E、
+    # 以及 T/F、Y/N 這類非 A 起始的標籤）。
+    singles = {k for k in question_data if isinstance(k, str) and len(k) == 1 and k.isupper()}
+
+    # 多字母標籤（AA、AB…）只在它延續標準序列時才算選項，
+    # 藉此排除 ID、NO 這類剛好是兩個大寫字母的 metadata 欄位。
     ordered: List[str] = []
     idx = 0
     while True:
@@ -78,15 +84,9 @@ def detect_option_keys(question_data: Dict[str, Any]) -> List[str]:
         ordered.append(label)
         idx += 1
 
-    if len(ordered) >= 2:
-        return ordered
-
-    # 回退：資料集的選項鍵未從 A 起始（如 T/F、Y/N）時，接受單一大寫字母鍵。
-    # 限定「單字元」是為了排除 ID / OK 這類剛好是大寫短字串的 metadata 欄位。
-    fallback = sorted(
-        k for k in question_data if isinstance(k, str) and len(k) == 1 and k.isupper()
-    )
-    return fallback if len(fallback) >= 2 else []
+    extras = sorted(singles - set(ordered))
+    keys = ordered + extras
+    return keys if len(keys) >= 2 else []
 
 
 def describe_dropped_fields(
