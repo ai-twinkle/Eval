@@ -3,17 +3,23 @@ import os
 import random
 import re
 import time
-from math import comb
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from typing import Any, Dict, Optional, Tuple
+from math import comb
+from typing import Any, Dict, Iterable, List, Optional, Tuple
 
 from tqdm import tqdm
 
-from twinkle_eval.datasets import Dataset
 from twinkle_eval.core.abc import Extractor, Scorer
-from twinkle_eval.core.logger import log_error
-from twinkle_eval.metrics.extractors.tool_call import ToolCallExtractor, convert_bfcl_functions_to_tools
-from twinkle_eval.metrics.extractors.bfcl_prompt import BFCLPromptExtractor, inject_bfcl_system_prompt
+from twinkle_eval.core.logger import log_error, log_warning
+from twinkle_eval.datasets import Dataset, index_to_label
+from twinkle_eval.metrics.extractors.bfcl_prompt import (
+    BFCLPromptExtractor,
+    inject_bfcl_system_prompt,
+)
+from twinkle_eval.metrics.extractors.tool_call import (
+    ToolCallExtractor,
+    convert_bfcl_functions_to_tools,
+)
 from twinkle_eval.models import LLM
 
 
@@ -38,7 +44,7 @@ def _strip_think_blocks(text: str) -> str:
     for start_tag, end_tag in _THINK_TAG_PAIRS:
         if start_tag in lower and end_tag in lower:
             idx = lower.rfind(end_tag)
-            return text[idx + len(end_tag):].strip()
+            return text[idx + len(end_tag) :].strip()
     return text
 
 
@@ -48,6 +54,86 @@ def _get_reasoning_text(message: Any) -> Optional[str]:
     if reasoning is None:
         reasoning = getattr(message, "reasoning_content", None)
     return reasoning
+
+
+def detect_option_keys(question_data: Dict[str, Any]) -> List[str]:
+    """動態偵測題目字典中的選項鍵，依標籤順序回傳（A、B、…、Z、AA、AB、…）。
+
+    以 ``index_to_label()`` 產生的標準標籤序列由 A 開始逐一比對，遇到第一個
+    缺口即停止。這樣可支援任意數量的選項（如 MMLU-Pro 的 A–J），同時避免把
+    ``ID`` 這類剛好是大寫短字串的中繼資料欄位誤判為選項。
+
+    Args:
+        question_data: 題目字典。
+
+    Returns:
+        依標籤順序排列的選項鍵列表；無選項時回傳空列表。
+    """
+    # 單一大寫字母一律視為候選選項鍵（涵蓋 A–D、不連續的 A/B/C/E、
+    # 以及 T/F、Y/N 這類非 A 起始的標籤）。
+    singles = {k for k in question_data if isinstance(k, str) and len(k) == 1 and k.isupper()}
+
+    # 多字母標籤（AA、AB…）只在它延續標準序列時才算選項，
+    # 藉此排除 ID、NO 這類剛好是兩個大寫字母的 metadata 欄位。
+    ordered: List[str] = []
+    idx = 0
+    while True:
+        label = index_to_label(idx)
+        if label not in question_data:
+            break
+        ordered.append(label)
+        idx += 1
+
+    extras = sorted(singles - set(ordered))
+    keys = ordered + extras
+    return keys if len(keys) >= 2 else []
+
+
+def describe_dropped_fields(
+    question_data: Dict[str, Any],
+    exclude: Optional[Iterable[str]] = None,
+) -> List[str]:
+    """回傳 ``build_question_text()`` 會略過的非選項欄位名稱。
+
+    用於每個檔案發出一次提示，讓「某個作答必需的欄位（如 hint、context）被丟棄」
+    這種靜默的分數下降變得可觀察。
+    """
+    keys = detect_option_keys(question_data)
+    if not keys:
+        return []
+    skip = {"question", "answer", *keys, *(exclude or ())}
+    return [k for k in question_data if k not in skip]
+
+
+def build_question_text(
+    question_data: Dict[str, Any],
+    option_keys: Optional[List[str]] = None,
+    exclude: Optional[Iterable[str]] = None,
+) -> str:
+    """組出送給模型的題目文字：題幹 + 選項。
+
+    偵測得到選項鍵時**只列出選項**。這是為了避免 ``id`` / ``domain`` /
+    ``discipline`` / ``category`` 這類 metadata 欄位被當成選項送進 prompt——
+    那既是雜訊，其中的學科分類欄位更等同於免費提示，會高估分數（見 #143）。
+
+    偵測不到選項鍵時（Text-to-SQL 等非選擇題）維持列出其餘所有欄位，
+    因為 ``db_id`` / ``evidence`` 這類欄位本來就該進 prompt。
+
+    Args:
+        question_data: 題目字典。
+        option_keys:   已算好的選項鍵；None 表示由本函式偵測。
+        exclude:       無選項鍵時額外要排除的欄位（如圖片路徑欄位）。
+
+    Returns:
+        題幹加上選項（或其餘欄位）的完整題目文字。
+    """
+    keys = detect_option_keys(question_data) if option_keys is None else option_keys
+    if keys:
+        body = "\n".join(f"{k}: {question_data[k]}" for k in keys)
+    else:
+        skip = {"question", "answer", *(exclude or ())}
+        body = "\n".join(f"{k}: {v}" for k, v in question_data.items() if k not in skip)
+    return question_data["question"] + "\n" + body
 
 
 #: 編碼圖片時的最大檔案大小（bytes），預設 50 MB。
@@ -119,8 +205,9 @@ def _encode_image_to_data_uri(
 
     if max_image_size:
         try:
-            from PIL import Image  # type: ignore
             import io as _io
+
+            from PIL import Image  # type: ignore
 
             with Image.open(real_path) as img:
                 img.thumbnail((max_image_size, max_image_size))
@@ -135,7 +222,9 @@ def _encode_image_to_data_uri(
                 mime_subtype = _detect_image_mime(payload)
                 return f"data:image/{mime_subtype};base64,{b64}"
         except ImportError:
-            log_error("max_image_size 已設定但 Pillow 未安裝，跳過縮放。請執行 pip install twinkle-eval[vision]")
+            log_error(
+                "max_image_size 已設定但 Pillow 未安裝，跳過縮放。請執行 pip install twinkle-eval[vision]"
+            )
         except Exception as e:
             log_error(f"圖片縮放失敗 ({image_path}): {e}，回退為原始檔案編碼")
 
@@ -209,25 +298,43 @@ class Evaluator:
         self.model_overrides = model_overrides or {}
 
     def shuffle_question_options(self, question_data: dict) -> dict:
-        # 動態偵測選項鍵（避免硬編碼 A/B/C/D）
-        options = [(k, question_data[k]) for k in ["A", "B", "C", "D"] if k in question_data]
+        """隨機重排題目選項，消除模型對選項位置的偏好。
 
-        if not options:
+        選項鍵動態偵測（見 ``detect_option_keys``），支援任意數量的選項；
+        非選項欄位（``image_path``、``id`` 等）原樣保留。
+
+        若無法在選項鍵中定位正解（``answer`` 缺失、非字母標籤、或指向不存在的
+        選項），則原樣回傳不做重排——重排後無法回填正解等同於毀損題目。
+        """
+        option_keys = detect_option_keys(question_data)
+        if len(option_keys) < 2:
             return question_data
 
-        correct_ans = question_data["answer"]
-        correct_option_text = question_data.get(correct_ans)
+        # 只有 A 起始的位置性標籤才可重排。T/F、Y/N 這類標籤本身帶有語意，
+        # 重排會讓標籤與內容錯位（T 指向「否」），使正確作答被判為錯。
+        if option_keys != [index_to_label(i) for i in range(len(option_keys))]:
+            return question_data
 
-        random.shuffle(options)
+        correct_key = str(question_data.get("answer", "")).strip().upper()
+        if correct_key not in option_keys:
+            log_warning(
+                f"跳過選項重排：answer={question_data.get('answer')!r} "
+                f"不在偵測到的選項鍵 {option_keys} 中"
+            )
+            return question_data
 
-        new_data = {"question": question_data["question"]}
+        # 以「原始鍵」而非選項文字定位正解，避免兩個選項文字相同時比對到錯誤選項
+        correct_index = option_keys.index(correct_key)
+        texts = [question_data[k] for k in option_keys]
 
-        for (old_key, text), (new_key, _) in zip(
-            options, [("A", ""), ("B", ""), ("C", ""), ("D", "")]
-        ):
-            new_data[new_key] = text
-            if text == correct_option_text:
-                new_data["answer"] = new_key
+        order = list(range(len(option_keys)))
+        random.shuffle(order)
+
+        new_data = dict(question_data)
+        for new_pos, old_index in enumerate(order):
+            new_data[option_keys[new_pos]] = texts[old_index]
+            if old_index == correct_index:
+                new_data["answer"] = option_keys[new_pos]
 
         return new_data
 
@@ -235,6 +342,28 @@ class Evaluator:
         self, file_path: str, timestamp: str, prompt_lang: str = "zh"
     ) -> Tuple[str, Dict[str, Any], str]:
         dataset = Dataset(file_path)
+
+        # 每個檔案提示一次：哪些非選項欄位不會進入 prompt。
+        # 這些欄位多半是 metadata（id、domain），但若資料集把作答必需的內容
+        # （hint、context）放在選項之外，就會被靜默丟棄而使分數無故下降。
+        if dataset.data:
+            vision_cfg = getattr(self.extractor, "_config", {}) or {}
+            extra_exclude = (
+                (vision_cfg.get("image_field", "image_path"), "image_url", "image")
+                if getattr(self.extractor, "uses_vision", False)
+                else ()
+            )
+            dropped = describe_dropped_fields(dataset.data[0], extra_exclude)
+            if dropped:
+                notice = (
+                    f"ℹ️  {file_path}：以下欄位不會進入 prompt（只列出選項）："
+                    f"{', '.join(dropped)}。"
+                    "若其中含作答必需的內容（如 hint、context），請改寫進 question 欄位。"
+                )
+                # logger 只寫入 logs/ 檔案（basicConfig 未設 StreamHandler），
+                # 而這個提示的目的正是讓靜默的分數下降被看見，所以同時印到終端機
+                print(notice)
+                log_warning(notice)
 
         total_correct_samples = 0
         total_samples = 0
@@ -251,16 +380,8 @@ class Evaluator:
                     if self.shuffle_options:
                         q = self.shuffle_question_options(q)
 
-                    option_keys = sorted(
-                        [k for k in q if isinstance(k, str) and k.isupper() and len(k) <= 2]
-                    )
-                    question_text = (
-                        q["question"]
-                        + "\n"
-                        + "\n".join(
-                            [f"{k}: {v}" for k, v in q.items() if k not in ["question", "answer"]]
-                        )
-                    )
+                    option_keys = detect_option_keys(q)
+                    question_text = build_question_text(q, option_keys)
                     logit_context = question_text + "\nAnswer:"
 
                     try:
@@ -278,13 +399,15 @@ class Evaluator:
                             f" {choice_key}",
                         )
 
-                    question_records.append({
-                        "idx": idx,
-                        "question_text": question_text,
-                        "correct_answer": correct_answer,
-                        "option_keys": option_keys,
-                        "choice_futures": choice_futures,
-                    })
+                    question_records.append(
+                        {
+                            "idx": idx,
+                            "question_text": question_text,
+                            "correct_answer": correct_answer,
+                            "option_keys": option_keys,
+                            "choice_futures": choice_futures,
+                        }
+                    )
 
                 for record in tqdm(question_records, desc="處理回應中"):
                     question_id = record["idx"]
@@ -318,20 +441,22 @@ class Evaluator:
                     question_stats[question_id]["total"] += 1
                     total_samples += 1
 
-                    detailed_results.append({
-                        "question_id": question_id,
-                        "sample_id": 0,
-                        "question": question_text,
-                        "correct_answer": correct_answer,
-                        "llm_output": None,
-                        "llm_reasoning_output": None,
-                        "predicted_answer": predicted_answer,
-                        "is_correct": is_correct,
-                        "logprob_scores": scores,
-                        "usage_completion_tokens": None,
-                        "usage_prompt_tokens": None,
-                        "usage_total_tokens": None,
-                    })
+                    detailed_results.append(
+                        {
+                            "question_id": question_id,
+                            "sample_id": 0,
+                            "question": question_text,
+                            "correct_answer": correct_answer,
+                            "llm_output": None,
+                            "llm_reasoning_output": None,
+                            "predicted_answer": predicted_answer,
+                            "is_correct": is_correct,
+                            "logprob_scores": scores,
+                            "usage_completion_tokens": None,
+                            "usage_prompt_tokens": None,
+                            "usage_total_tokens": None,
+                        }
+                    )
 
             elif getattr(self.extractor, "uses_tool_calls", False):
                 # ── BFCL FC 路徑 ────────────────────────────────────────────
@@ -377,24 +502,29 @@ class Evaluator:
                         tool_calls = getattr(message, "tool_calls", None)
 
                         if tool_calls:
-                            extraction_source = json.dumps([
-                                {
-                                    "name": tc.function.name,
-                                    "arguments": json.loads(tc.function.arguments),
-                                }
-                                for tc in tool_calls
-                            ], ensure_ascii=False)
+                            extraction_source = json.dumps(
+                                [
+                                    {
+                                        "name": tc.function.name,
+                                        "arguments": json.loads(tc.function.arguments),
+                                    }
+                                    for tc in tool_calls
+                                ],
+                                ensure_ascii=False,
+                            )
                         else:
                             extraction_source = None
-                            log_error(f"問題 {question_id} 未回傳 tool_calls（finish_reason={choice.finish_reason}）")
+                            log_error(
+                                f"問題 {question_id} 未回傳 tool_calls（finish_reason={choice.finish_reason}）"
+                            )
 
                         predicted_raw = self.extractor.extract(extraction_source)
                         predicted_answer = (
-                            None if predicted_raw is None
-                            else self.scorer.normalize(predicted_raw)
+                            None if predicted_raw is None else self.scorer.normalize(predicted_raw)
                         )
                         is_correct = (
-                            False if predicted_answer is None
+                            False
+                            if predicted_answer is None
                             else self.scorer.score(predicted_answer, correct_answer)
                         )
 
@@ -407,21 +537,25 @@ class Evaluator:
                         question_stats[question_id]["total"] += 1
                         total_samples += 1
 
-                        detailed_results.append({
-                            "question_id": question_id,
-                            "sample_id": sample_id,
-                            "question": question_text,
-                            "correct_answer": correct_answer,
-                            "llm_output": json.dumps(
-                                [tc.function.name for tc in tool_calls] if tool_calls else [],
-                            ),
-                            "llm_reasoning_output": None,
-                            "predicted_answer": predicted_answer,
-                            "is_correct": is_correct,
-                            "usage_completion_tokens": usage.completion_tokens if usage else None,
-                            "usage_prompt_tokens": usage.prompt_tokens if usage else None,
-                            "usage_total_tokens": usage.total_tokens if usage else None,
-                        })
+                        detailed_results.append(
+                            {
+                                "question_id": question_id,
+                                "sample_id": sample_id,
+                                "question": question_text,
+                                "correct_answer": correct_answer,
+                                "llm_output": json.dumps(
+                                    [tc.function.name for tc in tool_calls] if tool_calls else [],
+                                ),
+                                "llm_reasoning_output": None,
+                                "predicted_answer": predicted_answer,
+                                "is_correct": is_correct,
+                                "usage_completion_tokens": (
+                                    usage.completion_tokens if usage else None
+                                ),
+                                "usage_prompt_tokens": usage.prompt_tokens if usage else None,
+                                "usage_total_tokens": usage.total_tokens if usage else None,
+                            }
+                        )
 
             elif getattr(self.extractor, "uses_prompt_injection", False):
                 # ── BFCL Prompting 路徑 ─────────────────────────────────────
@@ -474,11 +608,11 @@ class Evaluator:
 
                         predicted_raw = self.extractor.extract(extraction_source)
                         predicted_answer = (
-                            None if predicted_raw is None
-                            else self.scorer.normalize(predicted_raw)
+                            None if predicted_raw is None else self.scorer.normalize(predicted_raw)
                         )
                         is_correct = (
-                            False if predicted_answer is None
+                            False
+                            if predicted_answer is None
                             else self.scorer.score(predicted_answer, correct_answer)
                         )
 
@@ -491,19 +625,23 @@ class Evaluator:
                         question_stats[question_id]["total"] += 1
                         total_samples += 1
 
-                        detailed_results.append({
-                            "question_id": question_id,
-                            "sample_id": sample_id,
-                            "question": question_text,
-                            "correct_answer": correct_answer,
-                            "llm_output": content,
-                            "llm_reasoning_output": reasoning_content,
-                            "predicted_answer": predicted_answer,
-                            "is_correct": is_correct,
-                            "usage_completion_tokens": usage.completion_tokens if usage else None,
-                            "usage_prompt_tokens": usage.prompt_tokens if usage else None,
-                            "usage_total_tokens": usage.total_tokens if usage else None,
-                        })
+                        detailed_results.append(
+                            {
+                                "question_id": question_id,
+                                "sample_id": sample_id,
+                                "question": question_text,
+                                "correct_answer": correct_answer,
+                                "llm_output": content,
+                                "llm_reasoning_output": reasoning_content,
+                                "predicted_answer": predicted_answer,
+                                "is_correct": is_correct,
+                                "usage_completion_tokens": (
+                                    usage.completion_tokens if usage else None
+                                ),
+                                "usage_prompt_tokens": usage.prompt_tokens if usage else None,
+                                "usage_total_tokens": usage.total_tokens if usage else None,
+                            }
+                        )
 
             elif getattr(self.extractor, "uses_ifeval", False):
                 # ── IFEval / IFBench 路徑 ──────────────────────────────────
@@ -527,10 +665,13 @@ class Evaluator:
                         log_error(f"問題 {idx + 1} 資料格式錯誤: {e}")
                         continue
 
-                    ground_truth = json.dumps({
-                        "instruction_id_list": instruction_id_list,
-                        "kwargs": kwargs_list,
-                    }, ensure_ascii=False)
+                    ground_truth = json.dumps(
+                        {
+                            "instruction_id_list": instruction_id_list,
+                            "kwargs": kwargs_list,
+                        },
+                        ensure_ascii=False,
+                    )
 
                     self.rate_limiter.wait()
                     future = executor.submit(
@@ -543,7 +684,13 @@ class Evaluator:
                         self.model_overrides,
                     )
                     future_tasks.append(future)
-                    future_to_data[future] = (question_text, ground_truth, idx, instruction_id_list, kwargs_list)
+                    future_to_data[future] = (
+                        question_text,
+                        ground_truth,
+                        idx,
+                        instruction_id_list,
+                        kwargs_list,
+                    )
 
                 # 累積 instruction-level 統計（跨題目）
                 all_inst_strict: list = []
@@ -554,7 +701,9 @@ class Evaluator:
                 ):
                     llm_chat_completion = future.result()
                     usage = llm_chat_completion.usage
-                    question_text, ground_truth, question_id, inst_ids, kwargs_list = future_to_data[future]
+                    question_text, ground_truth, question_id, inst_ids, kwargs_list = (
+                        future_to_data[future]
+                    )
 
                     message = llm_chat_completion.choices[0].message
                     content = message.content
@@ -567,6 +716,7 @@ class Evaluator:
                     if hasattr(self.scorer, "score_full"):
                         # IFBench scorer 需要 prompt 參數（某些 checker 如 RepeatChangeChecker）
                         import inspect
+
                         sig = inspect.signature(self.scorer.score_full)
                         if "prompt" in sig.parameters:
                             ifeval_result = self.scorer.score_full(
@@ -576,8 +726,10 @@ class Evaluator:
                             ifeval_result = self.scorer.score_full(response, inst_ids, kwargs_list)
                     else:
                         ifeval_result = {
-                            "prompt_strict": False, "prompt_loose": False,
-                            "instruction_strict": [], "instruction_loose": [],
+                            "prompt_strict": False,
+                            "prompt_loose": False,
+                            "instruction_strict": [],
+                            "instruction_loose": [],
                         }
 
                     prompt_strict = ifeval_result["prompt_strict"]
@@ -598,23 +750,25 @@ class Evaluator:
                     question_stats[question_id]["total"] += 1
                     total_samples += 1
 
-                    detailed_results.append({
-                        "question_id": question_id,
-                        "sample_id": 0,
-                        "question": question_text,
-                        "correct_answer": ground_truth,
-                        "llm_output": response,
-                        "llm_reasoning_output": None,
-                        "predicted_answer": response,
-                        "is_correct": is_correct,
-                        "prompt_strict": prompt_strict,
-                        "prompt_loose": prompt_loose,
-                        "instruction_strict": inst_strict,
-                        "instruction_loose": inst_loose,
-                        "usage_completion_tokens": usage.completion_tokens if usage else None,
-                        "usage_prompt_tokens": usage.prompt_tokens if usage else None,
-                        "usage_total_tokens": usage.total_tokens if usage else None,
-                    })
+                    detailed_results.append(
+                        {
+                            "question_id": question_id,
+                            "sample_id": 0,
+                            "question": question_text,
+                            "correct_answer": ground_truth,
+                            "llm_output": response,
+                            "llm_reasoning_output": None,
+                            "predicted_answer": response,
+                            "is_correct": is_correct,
+                            "prompt_strict": prompt_strict,
+                            "prompt_loose": prompt_loose,
+                            "instruction_strict": inst_strict,
+                            "instruction_loose": inst_loose,
+                            "usage_completion_tokens": usage.completion_tokens if usage else None,
+                            "usage_prompt_tokens": usage.prompt_tokens if usage else None,
+                            "usage_total_tokens": usage.total_tokens if usage else None,
+                        }
+                    )
 
                 # 在 metrics 中補充 instruction-level 指標
                 if all_inst_strict:
@@ -644,7 +798,10 @@ class Evaluator:
 
                     self.rate_limiter.wait()
 
-                    if hasattr(self.llm, "call") and getattr(type(self.llm), "__name__", "") == "WhisperModel":
+                    if (
+                        hasattr(self.llm, "call")
+                        and getattr(type(self.llm), "__name__", "") == "WhisperModel"
+                    ):
                         # Whisper API 路徑：直接傳音檔路徑
                         future = executor.submit(
                             self.llm.call,
@@ -658,6 +815,7 @@ class Evaluator:
                     else:
                         # Chat Completions 多模態路徑：建構含音檔 URL 的 messages
                         import base64
+
                         audio_url = audio_path
                         if os.path.isfile(audio_path):
                             with open(audio_path, "rb") as af:
@@ -670,7 +828,10 @@ class Evaluator:
                                 "role": "user",
                                 "content": [
                                     {"type": "audio_url", "audio_url": {"url": audio_url}},
-                                    {"type": "text", "text": "請將這段語音轉錄為文字，只輸出轉錄結果。"},
+                                    {
+                                        "type": "text",
+                                        "text": "請將這段語音轉錄為文字，只輸出轉錄結果。",
+                                    },
                                 ],
                             }
                         ]
@@ -705,8 +866,7 @@ class Evaluator:
 
                     predicted_raw = self.extractor.extract(content)
                     predicted_answer = (
-                        None if predicted_raw is None
-                        else self.scorer.normalize(predicted_raw)
+                        None if predicted_raw is None else self.scorer.normalize(predicted_raw)
                     )
                     gold_normalized = self.scorer.normalize(correct_answer)
 
@@ -721,7 +881,8 @@ class Evaluator:
                             pass  # jiwer 未安裝，跳過 WER/CER 計算
 
                     is_correct = (
-                        False if predicted_answer is None
+                        False
+                        if predicted_answer is None
                         else self.scorer.score(predicted_answer, gold_normalized)
                     )
 
@@ -777,9 +938,7 @@ class Evaluator:
                     if self.shuffle_options:
                         q = self.shuffle_question_options(q)
 
-                    option_keys = sorted(
-                        [k for k in q if isinstance(k, str) and k.isupper() and len(k) <= 2]
-                    )
+                    option_keys = detect_option_keys(q)
 
                     image_path = q.get(image_field) or q.get("image_url") or q.get("image")
                     if not image_path:
@@ -793,16 +952,10 @@ class Evaluator:
                         continue
 
                     # 建構文字題目（與文字 MCQ 相同邏輯：question + 選項）
-                    question_text = (
-                        q["question"]
-                        + "\n"
-                        + "\n".join(
-                            [
-                                f"{k}: {v}"
-                                for k, v in q.items()
-                                if k not in ["question", "answer", image_field, "image_url", "image", "id"]
-                            ]
-                        )
+                    question_text = build_question_text(
+                        q,
+                        option_keys,
+                        exclude=(image_field, "image_url", "image", "id"),
                     )
 
                     # 圖片編碼為 data URI 或直接使用 URL
@@ -866,9 +1019,7 @@ class Evaluator:
 
                         predicted_raw = self.extractor.extract(content)
                         predicted_answer = (
-                            None
-                            if predicted_raw is None
-                            else self.scorer.normalize(predicted_raw)
+                            None if predicted_raw is None else self.scorer.normalize(predicted_raw)
                         )
 
                         is_correct = (
@@ -897,7 +1048,9 @@ class Evaluator:
                                 "llm_reasoning_output": reasoning_content,
                                 "predicted_answer": predicted_answer,
                                 "is_correct": is_correct,
-                                "usage_completion_tokens": usage.completion_tokens if usage else None,
+                                "usage_completion_tokens": (
+                                    usage.completion_tokens if usage else None
+                                ),
                                 "usage_prompt_tokens": usage.prompt_tokens if usage else None,
                                 "usage_total_tokens": usage.total_tokens if usage else None,
                             }
@@ -912,16 +1065,8 @@ class Evaluator:
                     if self.shuffle_options:
                         q = self.shuffle_question_options(q)
 
-                    option_keys = sorted(
-                        [k for k in q if isinstance(k, str) and k.isupper() and len(k) <= 2]
-                    )
-                    question_text = (
-                        q["question"]
-                        + "\n"
-                        + "\n".join(
-                            [f"{k}: {v}" for k, v in q.items() if k not in ["question", "answer"]]
-                        )
-                    )
+                    option_keys = detect_option_keys(q)
+                    question_text = build_question_text(q, option_keys)
 
                     try:
                         correct_answer = self.scorer.normalize(q["answer"])
@@ -972,9 +1117,7 @@ class Evaluator:
 
                         predicted_raw = self.extractor.extract(extraction_source)
                         predicted_answer = (
-                            None
-                            if predicted_raw is None
-                            else self.scorer.normalize(predicted_raw)
+                            None if predicted_raw is None else self.scorer.normalize(predicted_raw)
                         )
 
                         is_correct = (
@@ -992,19 +1135,21 @@ class Evaluator:
                         question_stats[question_id]["total"] += 1
                         total_samples += 1
 
-                        detailed_results.append({
-                            "question_id": question_id,
-                            "sample_id": sample_id,
-                            "question": question_text,
-                            "correct_answer": correct_answer,
-                            "llm_output": content,
-                            "llm_reasoning_output": reasoning_content,
-                            "predicted_answer": predicted_answer,
-                            "is_correct": is_correct,
-                            "usage_completion_tokens": usage.completion_tokens,
-                            "usage_prompt_tokens": usage.prompt_tokens,
-                            "usage_total_tokens": usage.total_tokens,
-                        })
+                        detailed_results.append(
+                            {
+                                "question_id": question_id,
+                                "sample_id": sample_id,
+                                "question": question_text,
+                                "correct_answer": correct_answer,
+                                "llm_output": content,
+                                "llm_reasoning_output": reasoning_content,
+                                "predicted_answer": predicted_answer,
+                                "is_correct": is_correct,
+                                "usage_completion_tokens": usage.completion_tokens,
+                                "usage_prompt_tokens": usage.prompt_tokens,
+                                "usage_total_tokens": usage.total_tokens,
+                            }
+                        )
 
             accuracy = total_correct_samples / total_samples if total_samples else 0
 
@@ -1074,24 +1219,22 @@ class Evaluator:
         if getattr(self.extractor, "uses_ifeval", False):
             inst_strict = question_stats.get("_ifeval_inst_strict", {})
             inst_loose = question_stats.get("_ifeval_inst_loose", {})
-            prompt_loose_count = sum(
-                1 for d in detailed_results if d.get("prompt_loose", False)
-            )
+            prompt_loose_count = sum(1 for d in detailed_results if d.get("prompt_loose", False))
             inst_strict_acc = (
-                inst_strict["correct"] / inst_strict["total"]
-                if inst_strict.get("total") else 0.0
+                inst_strict["correct"] / inst_strict["total"] if inst_strict.get("total") else 0.0
             )
             inst_loose_acc = (
-                inst_loose["correct"] / inst_loose["total"]
-                if inst_loose.get("total") else 0.0
+                inst_loose["correct"] / inst_loose["total"] if inst_loose.get("total") else 0.0
             )
             prompt_loose_acc = prompt_loose_count / total_samples if total_samples else 0.0
-            metrics.update({
-                "prompt_strict": accuracy,           # same as accuracy
-                "prompt_loose": prompt_loose_acc,
-                "instruction_strict": inst_strict_acc,
-                "instruction_loose": inst_loose_acc,
-            })
+            metrics.update(
+                {
+                    "prompt_strict": accuracy,  # same as accuracy
+                    "prompt_loose": prompt_loose_acc,
+                    "instruction_strict": inst_strict_acc,
+                    "instruction_loose": inst_loose_acc,
+                }
+            )
             print(
                 f"  prompt strict={accuracy:.1%}  loose={prompt_loose_acc:.1%} | "
                 f"instruction strict={inst_strict_acc:.1%}  loose={inst_loose_acc:.1%}"
