@@ -43,10 +43,10 @@ class TestDetectOptionKeys:
         q.update({index_to_label(i): f"opt{i}" for i in range(10)})
         assert detect_option_keys(q) == list("ABCDEFGHIJ")
 
-    def test_stops_at_first_gap(self):
-        """標籤序列不連續時，缺口之後的鍵不算選項。"""
+    def test_gap_does_not_truncate_options(self):
+        """標籤不連續時仍須保留缺口之後的選項——截斷會讓正解從題目消失。"""
         q = {"question": "q", "A": "a", "B": "b", "D": "d", "answer": "A"}
-        assert detect_option_keys(q) == ["A", "B"]
+        assert detect_option_keys(q) == ["A", "B", "D"]
 
     def test_excludes_uppercase_metadata_key(self):
         """ID 這類大寫短欄位不得被誤判為選項。"""
@@ -463,3 +463,33 @@ class TestDroppedFieldsNoticeIsEmitted:
         out = capsys.readouterr().out
         assert "hint" in out, "被丟棄的欄位未提示到終端機"
         assert "不會進入 prompt" in out
+
+
+class TestNonContiguousOptionKeys:
+    """回歸：不連續的選項鍵（A,B,C,E）不得讓正解從 prompt 消失。
+
+    由 PR #136 的審查發現——「由 A 起連續掃描」會在遇到缺口時停止，
+    使缺口之後的選項（含正解）整個不出現在題目裡，題目變成無解。
+    """
+
+    def test_gap_in_labels_keeps_all_options(self):
+        q = {"question": "Q", "A": "a", "B": "b", "C": "c", "E": "e", "answer": "E"}
+        assert detect_option_keys(q) == ["A", "B", "C", "E"]
+
+    def test_correct_answer_stays_visible_in_prompt(self):
+        from twinkle_eval.runners.evaluator import build_question_text
+
+        q = {"question": "Q", "A": "a", "B": "b", "C": "c", "E": "e", "answer": "E"}
+        assert "E: e" in build_question_text(q)
+
+    def test_two_letter_metadata_still_excluded(self):
+        """修法不得讓 ID / NO 這類欄位重新被誤判為選項。"""
+        q = {"question": "Q", "A": "a", "B": "b", "C": "c", "D": "d", "ID": "x", "answer": "A"}
+        assert detect_option_keys(q) == ["A", "B", "C", "D"]
+
+    def test_canonical_multi_letter_labels_kept(self):
+        from twinkle_eval.runners.evaluator import index_to_label
+
+        q = {"question": "Q", "answer": "A"}
+        q.update({index_to_label(i): f"o{i}" for i in range(27)})
+        assert detect_option_keys(q)[-1] == "AA"
