@@ -19,7 +19,7 @@ from datasets import get_dataset_config_names, get_dataset_split_names, load_dat
 from twinkle_eval.core.logger import log_error, log_info, log_warning
 
 
-def _index_to_label(idx: int) -> str:
+def index_to_label(idx: int) -> str:
     """將 0-based 索引轉換為 Excel 風格的大寫字母標籤（A…Z、AA…AZ、BA…）。"""
     letters = []
     while True:
@@ -29,6 +29,10 @@ def _index_to_label(idx: int) -> str:
             break
         idx -= 1
     return "".join(reversed(letters))
+
+
+#: 向下相容別名（本模組內部與既有程式碼沿用底線前綴名稱）
+_index_to_label = index_to_label
 
 
 def _normalize_record(record: dict) -> dict:
