@@ -31,7 +31,15 @@ model:
   name: "model-name"
   temperature: 0.0
   top_p: 0.9
-  max_tokens: 2048
+  # ⚠️ 推理型 VLM（如 gemma 4）需要很長的輸出空間。
+  # 實測 gemma-4-31B-it 跑 21 題 example：
+  #   2048 → 正確率 57.14%，19.0% 因推理被截斷而 unparsed
+  #   8192 → 正確率 76.19%，4.8% unparsed
+  # 不設上限會推理到代理層逾時（HTTP 524，125 秒）。
+  #
+  # 註：官方框架（llms/oai_chat.py）把 max_tokens 註解掉、跑伺服器預設值，
+  #     因此做分數對比時兩邊的有效值必須先對齊，否則比到的是設定差異。
+  max_tokens: 8192
   frequency_penalty: 0.0
   presence_penalty: 0.0
   extra_body:

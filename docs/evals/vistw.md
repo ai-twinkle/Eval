@@ -315,6 +315,22 @@ twinkle-eval --init vistw_mcq_native   # 官方相容協定
 
 VisTW 是本 repo 唯一**預期模型以繁體中文作答**的 benchmark，所以這不是邊緣情況——一個回答「我選擇 X」的 zh-TW VLM 在這份 example 上會拿 **0/21**，分數反映的是措辭而非正確率。追蹤於 #156。
 
+### ⚠️ 推理型 VLM 需要很大的 `max_tokens`
+
+gemma 4 這類把思考放在 `reasoning_content` 的模型，會在寫出 `\boxed{}` 之前用掉大量 token。
+實測 `gemma-4-31B-it` 跑 21 題 example：
+
+| `max_tokens` | 正確率 | unparsed |
+|---|---|---|
+| 2048 | 57.14% | 19.0% |
+| 8192 | **76.19%** | 4.8% |
+| 不設 | — | 推理到代理層逾時（HTTP 524，125 秒） |
+
+**差 19 個百分點，全部來自截斷而非模型能力。** 分數異常低時請先看 `unparsed_rate`：
+若明顯大於 0，多半是這個原因而非 extractor 失效。
+
+範本已設為 8192。
+
 ### ⚠️ 不可開啟 shuffle_options
 
 `shuffle_question_options()` 會把題目重建為 `{question, A–D, answer}`，**丟掉 `image_path`**，導致每一題都以「缺少圖片欄位」被跳過、評測到零題。這是既有問題（#141），修復在 `fix/shuffle-options-and-runner-dedup` 分支上，合入前請維持 `shuffle_options: false`。
