@@ -6,7 +6,7 @@
 |------|------|
 | **Benchmark 名稱** | VisTW（Vision Taiwan） |
 | **evaluation_method** | `vision_mcq`（MCQ 子集）／ 待定（Dialogue 子集，見 #151） |
-| **實作狀態** | 🚧 Phase 1（MCQ 完成，Dialogue 待實作） |
+| **實作狀態** | 🚧 MCQ 與 Dialogue 皆已實作；分數／速度對比待補（#152、#153） |
 | **需要 optional deps** | `pip install twinkle-eval[vision]`（僅圖片縮放需要） |
 | **實作日期** | 2026-09-11 |
 | **實作者** | lianghsun |
@@ -83,11 +83,102 @@ VisTW-MCQ 是「圖片 + 繁中題幹 + A–D 選項 + 單一正解」，與既�
 
 **沒有新增 `PRESETS` 項目**，config 直接填 `evaluation_method: "vision_mcq"` 即可。
 
-### Dialogue 子集：待實作
+### Dialogue 子集：兩階段，不動 evaluator
 
-VisTW-Dialogue 是開放式問答，由 LLM judge 給 0–10 分。這需要「視覺 + LLM-as-judge」的組合，而本專案目前沒有——`vision_mcq` 是視覺但用 exact match，`ragas` 是 judge 但純文字。
+VisTW-Dialogue 是開放式問答，由 LLM judge 給 0–10 分。實作為兩階段，兩者都走既有路徑：
 
-設計討論見 #151，其中包含 evaluator 路由的選項與取捨（judge 呼叫能否並行是關鍵考量）。
+| 階段 | evaluation_method | 路徑 | 做什麼 |
+|------|-------------------|------|--------|
+| 1 生成 | `vistw_dialogue` | 既有 `uses_vision` | 送圖片+問題，記錄自由回答 |
+| 2 評分 | `vistw_judge` | 既有文字路徑 | judge 讀「問題+回答+參考答案」給 0–10 |
+
+```bash
+# 階段 1
+twinkle-eval --config configs/vistw_dialogue.yaml
+
+# 中間步驟：把生成結果併上 ground_truth，組成評分資料集
+python scripts/build_vistw_judge_dataset.py \
+    --generation results/eval_results_{timestamp}_run0.jsonl \
+    --dataset datasets/example/vistw_dialogue/test.jsonl \
+    --out datasets/example/vistw_dialogue_judge/judge.jsonl
+# ⚠️ 輸出**不可**放進階段 1 的 dataset_paths 目錄——
+#    下次跑階段 1 時 find_all_evaluation_files() 會把 judge.jsonl 也掃進來，
+#    而它每列都沒有 image_path，會全部報錯。
+
+# 階段 2（model.name 填 judge 模型）
+twinkle-eval --config configs/vistw_judge.yaml
+```
+
+**為什麼分兩階段**：judge 呼叫因此仍然並行（階段 2 是一次完整評測，走既有的 `ThreadPoolExecutor`）。若把 judge 塞進 Scorer 的 `score_full()`，judge 會變成序列執行，而並行正是本專案的核心賣點。這也與官方的兩階段結構一致，並讓「換 judge 重評」不必重跑生成。
+
+判斷依據是既有的 `ragas`：它是本專案唯一的 LLM-as-judge 方法，**沒有任何 `uses_*` flag**，judge 提示詞烘焙在資料集的 `question` 欄位，scorer 只負責解析。
+
+#### 指標
+
+| 指標 | 說明 |
+|------|------|
+| `accuracy` | 及格率（預設門檻 6.0，可用 `vistw_judge_pass_threshold` 調整） |
+| `llm_output`（JSONL 每列） | judge 的原始回應，0–10 分只存在於此 |
+
+> `judge_score` / `judge_parsed` 是 `VisTWJudgeScorer.score_full()` 的回傳欄位，
+> 但那個方法目前不會被呼叫，**兩個欄位都不會寫進 JSONL**。見下方說明。
+
+> ⚠️ **0–10 平均分目前不會出現在 `results_*.json`，也不在 JSONL 的欄位裡。**
+>
+> `score_full()` 在文字路徑沒有呼叫點，所以 `judge_score` / `judge_parsed` **不會被寫出**。
+> 分數只存在於 `llm_output` 的原始 judge 回應中，需自行解析：
+>
+> ```python
+> import glob, json, statistics as st
+> from twinkle_eval.metrics.scorers.vistw_judge import VisTWJudgeScorer
+>
+> s = VisTWJudgeScorer()
+> scores, failed = [], 0
+> for f in glob.glob("results/eval_results_{timestamp}_run*.jsonl"):
+>     for line in open(f, encoding="utf-8"):
+>         row = json.loads(line)
+>         # 用 predicted_answer 而非 llm_output：它是 pass-through extractor 的輸出，
+>         # 已套過 content -> reasoning 的回退，推理型 judge 在 content=null 時才不會漏。
+>         v = s.parse_score(row.get("predicted_answer") or "")
+>         scores.append(v) if v is not None else (failed := failed + 1)
+> if not scores:
+>     print(f"沒有任何可解析的分數（failed={failed}）——檢查 judge 是否遵守輸出格式")
+> else:
+>     print(f"avg={st.mean(scores):.2f}/10  parsed={len(scores)}  failed={failed}")
+> ```
+>
+> 兩層阻礙與修法追蹤於 #163。在它修好之前，**回報分數時請一併回報 `failed` 筆數**。
+>
+> 註：上面的片段把所有 run 攤平取平均。官方的語意是每題先平均、再跨題平均；
+> `failed > 0` 時兩者會分歧（某題少了幾次評分，該題在攤平法中的權重就較低）。
+> 要精確對齊官方請先依 `question_id` 分組。
+
+> ⚠️ **`unparsed_rate` 量的不是 judge 解析失敗率。** 它只計入「回應為空」的題目。
+> judge 有回應但**格式不符**（抓不到 `[評分]: N`）時，`predicted_answer` 是原文而非 `None`，
+> 因此不計入 unparsed —— 但該題的 `judge_score` 是 `null`、不進平均。
+>
+> 所以平均分的母體可能小於題數，而**沒有任何 metrics 欄位會透露這件事**。
+> 請務必用上面的片段確認 `parsed` 與 `total` 的差距，並在回報分數時一併說明。
+> 解析失敗的題目**不會被給預設分**——默默給一個中間值會讓分數全面失真且無跡可循。
+
+官方對每個回答評分 5 次（temperature 0.7）取平均；本專案以 `repeat_runs: 5` 達成。
+
+> ⚠️ **先確認端點真的有套用 temperature，否則多次評分沒有意義。**
+>
+> 實測某個 vLLM 0.26 後端（2026-09-13）：同一 prompt 在 temperature 0.7 與 1.5 下
+> 連送 5 次，回應**完全相同**；12 題各評 5 次的標準差是 **0.00**。
+> 該端點忽略 temperature，於是「5 次投票取平均」等於跑 5 次相同計算，
+> 只是讓 API 用量變 5 倍。
+>
+> 這也讓「以 judge 自身變異當雜訊下界」的做法失效——那個下界會是 0，
+> 看起來任何微小差異都顯著。做 #152 的分數對比前，請先用同一 prompt
+> 連送數次確認端點確實有隨機性。
+
+#### 評分指南的移植
+
+`scripts/build_vistw_judge_dataset.py` 的 `JUDGE_PROMPT` 移植自官方
+`simplevals/prompts.py` 的 `HUMAN_GUIDELINE`（CC BY 4.0），保留 0–10 的六級描述，
+並明確要求以 `[評分]: N` 輸出，供 `VisTWJudgeScorer` 解析。
 
 ### 資料集轉換
 
