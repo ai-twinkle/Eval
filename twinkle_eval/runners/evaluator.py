@@ -349,6 +349,22 @@ class Evaluator:
 
         return new_data
 
+    def _score_full_extras(self, predicted: Optional[str], gold: Any) -> Dict[str, Any]:
+        """取得 Scorer 的 ``score_full()`` 額外指標；沒有實作則回傳空 dict。
+
+        解析失敗（``predicted`` 為 None）時不呼叫——那種情況已計入 unparsed，
+        再讓 scorer 去解析一個 None 只會製造假資料。
+        """
+        fn = getattr(self.scorer, "score_full", None)
+        if fn is None or predicted is None:
+            return {}
+        try:
+            result = fn(predicted, gold)
+        except Exception as e:  # scorer 的問題不該讓整個檔案評測失敗
+            log_error(f"score_full() 失敗: {e}")
+            return {}
+        return result if isinstance(result, dict) else {}
+
     def evaluate_file(
         self, file_path: str, timestamp: str, prompt_lang: str = "zh"
     ) -> Tuple[str, Dict[str, Any], str]:
@@ -380,6 +396,8 @@ class Evaluator:
         total_samples = 0
         total_unparsed = 0
         detailed_results = []
+        #: score_full() 回傳的數值欄位累加（欄位名 -> [總和, 筆數]）
+        extra_metric_sums: Dict[str, list] = {}
         question_stats: Dict[int, Dict[str, int]] = {}
 
         with ThreadPoolExecutor() as executor:
@@ -1155,21 +1173,34 @@ class Evaluator:
                         question_stats[question_id]["total"] += 1
                         total_samples += 1
 
-                        detailed_results.append(
-                            {
-                                "question_id": question_id,
-                                "sample_id": sample_id,
-                                "question": question_text,
-                                "correct_answer": correct_answer,
-                                "llm_output": content,
-                                "llm_reasoning_output": reasoning_content,
-                                "predicted_answer": predicted_answer,
-                                "is_correct": is_correct,
-                                "usage_completion_tokens": usage.completion_tokens,
-                                "usage_prompt_tokens": usage.prompt_tokens,
-                                "usage_total_tokens": usage.total_tokens,
-                            }
-                        )
+                        entry: Dict[str, Any] = {
+                            "question_id": question_id,
+                            "sample_id": sample_id,
+                            "question": question_text,
+                            "correct_answer": correct_answer,
+                            "llm_output": content,
+                            "llm_reasoning_output": reasoning_content,
+                            "predicted_answer": predicted_answer,
+                            "is_correct": is_correct,
+                            "usage_completion_tokens": usage.completion_tokens,
+                            "usage_prompt_tokens": usage.prompt_tokens,
+                            "usage_total_tokens": usage.total_tokens,
+                        }
+                        # Scorer 若提供 score_full()，把它的額外指標併入明細，
+                        # 並累積數值型欄位以便在 metrics 中回報平均。
+                        # 先前只有 uses_ifeval / uses_audio 兩條路徑會呼叫，
+                        # 使得文字路徑上的多指標 scorer（如 vistw_judge 的 0–10 分）
+                        # 寫了也不會生效。
+                        extra = self._score_full_extras(predicted_answer, correct_answer)
+                        if extra:
+                            entry.update(extra)
+                            for k, v in extra.items():
+                                if isinstance(v, (int, float)) and not isinstance(v, bool):
+                                    acc = extra_metric_sums.setdefault(k, [0.0, 0])
+                                    acc[0] += float(v)
+                                    acc[1] += 1
+
+                        detailed_results.append(entry)
 
             accuracy = total_correct_samples / total_samples if total_samples else 0
 
@@ -1216,6 +1247,11 @@ class Evaluator:
             "unparsed_rate": unparsed_rate,
             "total_count": total_samples,
         }
+
+        # score_full() 的數值指標（文字路徑）
+        for name, (total, count) in extra_metric_sums.items():
+            if count:
+                metrics[f"avg_{name}"] = round(total / count, 6)
 
         # ASR 額外指標
         if getattr(self.extractor, "uses_audio", False):

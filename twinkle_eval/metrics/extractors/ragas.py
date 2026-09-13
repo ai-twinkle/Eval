@@ -11,7 +11,6 @@ from typing import Any, Dict, Optional
 
 from twinkle_eval.core.abc import Extractor
 
-
 # RAGAS judge 應回傳的 4 個指標
 RAGAS_METRICS = ("faithfulness", "answer_relevancy", "context_precision", "context_recall")
 
