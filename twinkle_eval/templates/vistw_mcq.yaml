@@ -20,7 +20,11 @@ model:
   name: "model-name"
   temperature: 0.0
   top_p: 0.9
-  max_tokens: 2048        # 推理型 VLM 需要較長輸出，過短會截斷 \boxed{}
+  # ⚠️ 推理型 VLM（如 gemma 4）需要很長的輸出空間。
+  # 實測 21 題 example：2048 → 正確率 57%、19% 因截斷而 unparsed；
+  #                     8192 → 正確率 76%、4.8% unparsed。差 19 個百分點。
+  # 但也不要不設上限——實測不帶 max_tokens 會讓模型推理到代理層逾時（HTTP 524）。
+  max_tokens: 8192
   frequency_penalty: 0.0
   presence_penalty: 0.0
   extra_body:
