@@ -26,7 +26,6 @@ import langdetect
 
 from twinkle_eval.metrics.checkers.ifeval import instructions_util
 
-
 _InstructionArgsDtype = Optional[Dict[str, Union[int, str, Sequence[str]]]]
 
 _LANGUAGES = instructions_util.LANGUAGE_CODES

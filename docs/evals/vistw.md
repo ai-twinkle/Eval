@@ -83,11 +83,50 @@ VisTW-MCQ 是「圖片 + 繁中題幹 + A–D 選項 + 單一正解」，與既�
 
 **沒有新增 `PRESETS` 項目**，config 直接填 `evaluation_method: "vision_mcq"` 即可。
 
-### Dialogue 子集：待實作
+### Dialogue 子集：兩階段，不動 evaluator
 
-VisTW-Dialogue 是開放式問答，由 LLM judge 給 0–10 分。這需要「視覺 + LLM-as-judge」的組合，而本專案目前沒有——`vision_mcq` 是視覺但用 exact match，`ragas` 是 judge 但純文字。
+VisTW-Dialogue 是開放式問答，由 LLM judge 給 0–10 分。實作為兩階段，兩者都走既有路徑：
 
-設計討論見 #151，其中包含 evaluator 路由的選項與取捨（judge 呼叫能否並行是關鍵考量）。
+| 階段 | evaluation_method | 路徑 | 做什麼 |
+|------|-------------------|------|--------|
+| 1 生成 | `vistw_dialogue` | 既有 `uses_vision` | 送圖片+問題，記錄自由回答 |
+| 2 評分 | `vistw_judge` | 既有文字路徑 | judge 讀「問題+回答+參考答案」給 0–10 |
+
+```bash
+# 階段 1
+twinkle-eval --config configs/vistw_dialogue.yaml
+
+# 中間步驟：把生成結果併上 ground_truth，組成評分資料集
+python scripts/build_vistw_judge_dataset.py \
+    --generation results/eval_results_{timestamp}_run0.jsonl \
+    --dataset datasets/example/vistw_dialogue/test.jsonl \
+    --out datasets/example/vistw_dialogue/judge.jsonl
+
+# 階段 2（model.name 填 judge 模型）
+twinkle-eval --config configs/vistw_judge.yaml
+```
+
+**為什麼分兩階段**：judge 呼叫因此仍然並行（階段 2 是一次完整評測，走既有的 `ThreadPoolExecutor`）。若把 judge 塞進 Scorer 的 `score_full()`，judge 會變成序列執行，而並行正是本專案的核心賣點。這也與官方的兩階段結構一致，並讓「換 judge 重評」不必重跑生成。
+
+判斷依據是既有的 `ragas`：它是本專案唯一的 LLM-as-judge 方法，**沒有任何 `uses_*` flag**，judge 提示詞烘焙在資料集的 `question` 欄位，scorer 只負責解析。
+
+#### 指標
+
+| 指標 | 說明 |
+|------|------|
+| `avg_judge_score` | **真正的指標**，0–10 平均分 |
+| `accuracy` | 及格率（預設門檻 6.0，可用 `vistw_judge_pass_threshold` 調整） |
+| `unparsed_rate` | judge 回應無法解析的比例 |
+
+`unparsed_rate` 必須一併回報。judge 沒遵守輸出格式時該題**不會被給預設分**——分數是 `None`、計入 unparsed，因此平均分的母體會縮小。judge-based 評分最危險的失效就是格式不符時默默給一個中間值，使分數全面失真且無跡可循。
+
+官方對每個回答評分 5 次（temperature 0.7）取平均；本專案以 `repeat_runs: 5` 達成，並額外得到標準差，讓 judge 自身的變異可見——那正是 #152 做分數對比時需要的雜訊下界。
+
+#### 評分指南的移植
+
+`scripts/build_vistw_judge_dataset.py` 的 `JUDGE_PROMPT` 移植自官方
+`simplevals/prompts.py` 的 `HUMAN_GUIDELINE`（CC BY 4.0），保留 0–10 的六級描述，
+並明確要求以 `[評分]: N` 輸出，供 `VisTWJudgeScorer` 解析。
 
 ### 資料集轉換
 

@@ -156,3 +156,54 @@ class TestBenchmarkSavePath:
         before = src[:i]
         assert "safe_config" in before, "--benchmark 在存檔前沒有清理 config"
         assert 'del safe_config["llm_api"]["api_key"]' in before
+
+
+class TestBenchmarkPathHasItsDependencies:
+    """回歸：`--benchmark` 的金鑰清理用 copy.deepcopy，但 main.py 曾經沒有 import copy。
+
+    #149 移除 main.py 的 runner class 時把 `import copy` 一併帶走，
+    而 #158 加在 --benchmark 的清理還在用它——`--benchmark` 因此會 NameError 崩潰。
+    lint 抓得到（F821），但當時沒有針對這個檔案跑。
+    """
+
+    def test_copy_is_importable_from_main(self):
+        import copy as _copy
+
+        import twinkle_eval.main as m
+
+        assert (
+            getattr(m, "copy", None) is _copy
+        ), "main.py 缺少 import copy，--benchmark 會 NameError"
+
+    def test_main_module_has_no_undefined_names(self):
+        """更廣的守備：編譯期檢查 main.py 用到但未定義的模組層名稱。"""
+        import ast
+        import builtins
+        import pathlib
+
+        src = pathlib.Path("twinkle_eval/main.py").read_text(encoding="utf-8")
+        tree = ast.parse(src)
+
+        # 模組層魔術變數不在 builtins 裡
+        defined = set(dir(builtins)) | {"__file__", "__name__", "__doc__", "__package__"}
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Import):
+                defined |= {(a.asname or a.name.split(".")[0]) for a in node.names}
+            elif isinstance(node, ast.ImportFrom):
+                defined |= {(a.asname or a.name) for a in node.names}
+            elif isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+                defined.add(node.name)
+            elif isinstance(node, ast.Name) and isinstance(node.ctx, ast.Store):
+                defined.add(node.id)
+            elif isinstance(node, ast.arg):
+                defined.add(node.arg)
+            elif isinstance(node, ast.ExceptHandler) and node.name:
+                defined.add(node.name)
+            elif isinstance(node, (ast.comprehension,)):
+                pass
+
+        used = {
+            n.id for n in ast.walk(tree) if isinstance(n, ast.Name) and isinstance(n.ctx, ast.Load)
+        }
+        missing = used - defined
+        assert not missing, f"main.py 用到未定義的名稱: {sorted(missing)}"
