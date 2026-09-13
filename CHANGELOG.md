@@ -5,6 +5,30 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+- **`evaluation.system_prompt` 只對 `box` 與 `math` 生效**（#144）：`_build_messages()` 以
+  `method in {"box", "math"}` 的硬編碼白名單決定是否送出，其餘方法即使設了也不進 request。
+  `templates/regex_match.yaml` 這個官方範本自己就設了一段指定輸出格式的 prompt 卻從未送出，
+  使用者照範本設定反而得到爆高的 `unparsed_rate` 且無從得知原因。
+  改為：只要設了非空 `system_prompt` 且 `system_prompt_enabled` 為真就送出。
+- **vision 路徑在任何設定下都送不出 system prompt**：它不經過 `_build_messages()`，
+  evaluator 自己組 multimodal messages 直接傳給 `call()`。`_build_vision_messages()`
+  新增 optional 的 `system_prompt` 參數。
+- `templates/regex_match.yaml` 補上 `datasets_prompt_map`。該範本只定義 `en` 鍵，而
+  `prompt_lang` 預設為 `zh`，所以即使移除白名單，prompt 仍然送不出去。
+
+### Changed
+- **設了 `system_prompt` 的非 box/math 設定，現在該 prompt 會真的送達模型**，分數會變動。
+  這是修復而非副作用——那些設定本來就預期 prompt 會被送出。`regex_match` 使用者應預期
+  `unparsed_rate` 下降。
+- **`box` / `math` 在未設 `system_prompt` 時不再送出 `content` 為空字串的 system message。**
+  舊版會送出空的 system block，多數 chat template 仍會渲染它，因此這可能使既有的
+  box / math 分數有小幅變動。
+- system prompt 的語言解析改為區分「鍵不存在」與「鍵存在但為空」：前者依序回退 `zh`、
+  再回退唯一已定義的語言；後者視為該語言明確不要 prompt，**不跨語言回退**。
+  先前的 `or` 串接會讓 `{zh: "中文", en: null}` 搭配英文資料集收到中文 prompt。
 ## [2.8.1] - 2026-09-11
 
 本版為 PR #136（`Fix/audit bugfix batch`，作者 @dave-apmic）前半段的獨立修復批次，

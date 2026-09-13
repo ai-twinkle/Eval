@@ -1,0 +1,5 @@
+[flake8]
+max-line-length = 100
+# E203：black 會在切片的冒號前留空白（`a[i + 1 :]`），與 PEP 8 的字面解讀衝突。
+# black 官方明確建議忽略此項。
+extend-ignore = E203

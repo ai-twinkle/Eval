@@ -8,6 +8,7 @@ from openai.types.chat import ChatCompletion
 
 from twinkle_eval.core.abc import LLM
 from twinkle_eval.core.logger import log_error
+from twinkle_eval.core.prompts import resolve_system_prompt
 
 
 class OpenAIModel(LLM):
@@ -50,26 +51,26 @@ class OpenAIModel(LLM):
         eval_method: str,
         system_prompt_enabled: bool,
     ) -> list:
-        """依評測方法建立訊息列表。"""
-        eval_config = self.config["evaluation"]
-        method = eval_method or eval_config["evaluation_method"]
+        """建立訊息列表。
 
-        # box 和 math 兩種方法都使用 system prompt
-        uses_system_prompt = system_prompt_enabled and method in {"box", "math"}
+        只要 config 設了非空的 ``system_prompt`` 且 ``system_prompt_enabled``
+        為真就送出，不再依評測方法白名單決定。
 
-        if uses_system_prompt:
-            sys_prompt_cfg = eval_config.get("system_prompt", {})
-            if isinstance(sys_prompt_cfg, dict):
-                sys_prompt = sys_prompt_cfg.get(prompt_lang, sys_prompt_cfg.get("zh", ""))
-            else:
-                sys_prompt = sys_prompt_cfg
-
-            return [
-                {"role": "system", "content": sys_prompt},
-                {"role": "user", "content": question_text},
-            ]
-        else:
+        先前的實作是 ``method in {"box", "math"}``，這造成兩個問題（#144）：
+        其他方法即使在 config 設了 ``system_prompt`` 也不會進 request——
+        ``templates/regex_match.yaml`` 就設了一段指定輸出格式的 prompt 卻從未
+        送出，使用者照官方範本設定反而得到爆高的 unparsed_rate；而且 models
+        層需要知道評測方法，違反 §4 的模組職責邊界。
+        """
+        sys_prompt = resolve_system_prompt(
+            self.config["evaluation"], prompt_lang, system_prompt_enabled
+        )
+        if sys_prompt is None:
             return [{"role": "user", "content": question_text}]
+        return [
+            {"role": "system", "content": sys_prompt},
+            {"role": "user", "content": question_text},
+        ]
 
     def call(
         self,
@@ -92,7 +93,9 @@ class OpenAIModel(LLM):
         if messages is not None:
             built_messages = messages
         else:
-            built_messages = self._build_messages(question_text, prompt_lang, eval_method, system_prompt_enabled)
+            built_messages = self._build_messages(
+                question_text, prompt_lang, eval_method, system_prompt_enabled
+            )
         model_config = self.config["model"]
         overrides = model_overrides or {}
 

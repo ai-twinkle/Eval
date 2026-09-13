@@ -15,6 +15,7 @@ from twinkle_eval.core.logger import log_error
 from twinkle_eval.metrics.extractors.tool_call import ToolCallExtractor, convert_bfcl_functions_to_tools
 from twinkle_eval.metrics.extractors.bfcl_prompt import BFCLPromptExtractor, inject_bfcl_system_prompt
 from twinkle_eval.models import LLM
+from twinkle_eval.core.prompts import resolve_system_prompt
 
 
 def _get_node_id() -> str:
@@ -150,9 +151,18 @@ def _build_vision_messages(
     image_url: str,
     question_text: str,
     image_detail: str = "auto",
+    system_prompt: Optional[str] = None,
 ) -> list:
-    """建構 OpenAI multimodal messages（image_url + text）。"""
-    return [
+    """建構 OpenAI multimodal messages（image_url + text）。
+
+    vision 路徑不經過 ``OpenAIModel._build_messages()``——evaluator 自己組好
+    messages 直接傳給 ``call()``——所以 system prompt 必須在這裡加入，否則
+    ``evaluation.system_prompt`` 對視覺評測完全無效（#144 的另一半）。
+    """
+    messages: list = []
+    if system_prompt:
+        messages.append({"role": "system", "content": system_prompt})
+    messages.append(
         {
             "role": "user",
             "content": [
@@ -163,7 +173,8 @@ def _build_vision_messages(
                 {"type": "text", "text": question_text},
             ],
         }
-    ]
+    )
+    return messages
 
 
 class RateLimiter:
@@ -812,7 +823,16 @@ class Evaluator:
                         log_error(f"問題 {idx + 1} 圖片載入失敗: {e}")
                         continue
 
-                    messages = _build_vision_messages(image_url, question_text, image_detail)
+                    messages = _build_vision_messages(
+                        image_url,
+                        question_text,
+                        image_detail,
+                        system_prompt=resolve_system_prompt(
+                            self.config.get("evaluation", {}),
+                            prompt_lang,
+                            self.system_prompt_enabled,
+                        ),
+                    )
 
                     self.rate_limiter.wait()
                     # Vision 路徑使用預先建構的 multimodal messages，
