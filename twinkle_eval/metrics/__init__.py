@@ -4,35 +4,31 @@ from typing import Any, Dict, List, Optional, Tuple, Type
 
 from twinkle_eval.core.abc import Extractor, Scorer
 
-from .extractors.asr import ASRExtractor
 from .extractors.bfcl_prompt import BFCLPromptExtractor
 from .extractors.box import BoxExtractor
 from .extractors.custom import CustomRegexExtractor
-from .extractors.ifbench import IFBenchExtractor
-from .extractors.ifeval import IFEvalExtractor
 from .extractors.logit import LogitExtractor
 from .extractors.math import MathExtractor
-from .extractors.niah import NIAHExtractor
 from .extractors.pattern import PatternExtractor
-from .extractors.ragas import RAGASExtractor
-from .extractors.regex_match import RegexMatchExtractor
-from .extractors.text2sql import Text2SQLExtractor
 from .extractors.tool_call import ToolCallExtractor
-from .extractors.vision_mcq import VisionMCQExtractor
-from .extractors.vistw_dialogue import VisTWDialogueExtractor
-from .extractors.vistw_judge import VisTWJudgeExtractor
-from .scorers.asr import ASRScorer
+from .extractors.ifeval import IFEvalExtractor
+from .extractors.ifbench import IFBenchExtractor
 from .scorers.bfcl import BFCLScorer
 from .scorers.exact import ExactMatchScorer
-from .scorers.ifbench import IFBenchScorer
-from .scorers.ifeval import IFEvalScorer
 from .scorers.math import MathRulerScorer
+from .scorers.ifeval import IFEvalScorer
+from .scorers.ifbench import IFBenchScorer
+from .extractors.niah import NIAHExtractor
 from .scorers.niah import NIAHScorer
+from .extractors.ragas import RAGASExtractor
 from .scorers.ragas import RAGASScorer
-from .scorers.string_match import StringMatchScorer
+from .extractors.text2sql import Text2SQLExtractor
+from .extractors.regex_match import RegexMatchExtractor
 from .scorers.text2sql import Text2SQLScorer
-from .scorers.vistw_dialogue import VisTWDialogueScorer
-from .scorers.vistw_judge import VisTWJudgeScorer
+from .scorers.string_match import StringMatchScorer
+from .extractors.asr import ASRExtractor
+from .scorers.asr import ASRScorer
+from .extractors.vision_mcq import VisionMCQExtractor
 
 # Preset：evaluation_method 字串 → (Extractor 類別, Scorer 類別)
 PRESETS: Dict[str, Tuple[Type[Extractor], Type[Scorer]]] = {
@@ -51,10 +47,6 @@ PRESETS: Dict[str, Tuple[Type[Extractor], Type[Scorer]]] = {
     "regex_match": (RegexMatchExtractor, StringMatchScorer),
     "asr": (ASRExtractor, ASRScorer),
     "vision_mcq": (VisionMCQExtractor, ExactMatchScorer),
-    # VisTW-Dialogue 是兩階段：先生成（vision 路徑）、再評分（文字路徑）。
-    # 兩者都走既有路徑，evaluator 不需改動。
-    "vistw_dialogue": (VisTWDialogueExtractor, VisTWDialogueScorer),
-    "vistw_judge": (VisTWJudgeExtractor, VisTWJudgeScorer),
 }
 
 
@@ -136,8 +128,4 @@ __all__ = [
     "ASRExtractor",
     "ASRScorer",
     "VisionMCQExtractor",
-    "VisTWDialogueExtractor",
-    "VisTWDialogueScorer",
-    "VisTWJudgeExtractor",
-    "VisTWJudgeScorer",
 ]

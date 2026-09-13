@@ -12,6 +12,7 @@ from typing import Any, Dict, List, Optional
 
 from twinkle_eval.core.abc import Scorer
 
+
 # CJK Unicode 範圍（用於判斷是否為 CJK 字元）
 _CJK_RANGES = [
     (0x4E00, 0x9FFF),    # CJK Unified Ideographs

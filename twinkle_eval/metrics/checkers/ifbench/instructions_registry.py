@@ -20,6 +20,7 @@ https://github.com/allenai/IFBench
 
 from . import instructions
 
+
 INSTRUCTION_DICT = {
     "count:word_count_range": instructions.WordCountRangeChecker,
     "count:unique_word_count": instructions.UniqueWordCountChecker,
