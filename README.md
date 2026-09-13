@@ -98,7 +98,7 @@ example dataset 規格、Extractor + Scorer 骨架與 `PRESETS` 註冊、evaluat
 
 ## 支援的評測資料集
 
-Twinkle Eval 內建 27 個評測資料集的下載支援，涵蓋 9 大評測類型。所有資料集皆可透過 `--download-dataset` 一鍵下載。
+Twinkle Eval 內建 28 個評測資料集的下載支援，涵蓋 10 大評測類型。所有資料集皆可透過 `--download-dataset` 一鍵下載。
 
 ### 選擇題（Multiple Choice）
 
@@ -159,6 +159,16 @@ Twinkle Eval 內建 27 個評測資料集的下載支援，涵蓋 9 大評測類
 | [Aishell-1](https://huggingface.co/datasets/carlot/AIShell) | HuggingFace | 中文普通話語音辨識（CER） | `asr` |
 | [Fleurs](https://huggingface.co/datasets/google/fleurs) | HuggingFace | 102 語言多語言語音辨識 | `asr` |
 | [Common Voice](https://huggingface.co/datasets/mozilla-foundation/common_voice_17_0) | HuggingFace | 群眾外包多語言語音辨識 | `asr` |
+
+### 視覺理解（Vision）
+
+| 資料集 | 來源 | 說明 | 評測方法 |
+|--------|------|------|---------|
+| [MMBench](https://huggingface.co/datasets/lmms-lab/MMBench) | HuggingFace | 多模態理解多選題（dev en） | `vision_mcq` |
+| [MMStar](https://huggingface.co/datasets/Lin-Chen/MMStar) | HuggingFace | 視覺推理多選題（1500 題） | `vision_mcq` |
+| [MMMU](https://huggingface.co/datasets/MMMU/MMMU) | HuggingFace | 大規模多任務多模態評測（30 學科） | `vision_mcq` |
+| [POPE](https://huggingface.co/datasets/lmms-lab/POPE) | HuggingFace | 物件幻覺偵測（Yes/No 二元判斷） | `vision_mcq` |
+| [VisTW-MCQ](https://huggingface.co/datasets/miulab/vistw-mcq) | HuggingFace | 繁體中文台灣在地視覺選擇題（21 學科） | `vision_mcq` |
 
 ### Text-to-SQL
 

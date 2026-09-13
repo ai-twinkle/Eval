@@ -1,0 +1,49 @@
+# VisTW-MCQ — 繁體中文台灣在地視覺選擇題（21 學科）
+#
+# 本專案的預設評測協定：要求模型把答案放進 \boxed{}。
+# VisionMCQExtractor 把 \boxed{} 排在最高優先，對推理型與非推理型 VLM 都適用。
+#
+# 若要與官方 leaderboard 對比分數，請改用 vistw_mcq_native.yaml，
+# 兩者的 prompt 與抽取協定不同，分數不可互相比較。
+#
+# 需要：pip install twinkle-eval[vision]（僅在設定 max_image_size 時用到）
+
+llm_api:
+  base_url: "http://your-openai-compatible-server/v1"
+  api_key: "your-api-key"
+  disable_ssl_verify: false
+  api_rate_limit: -1
+  max_retries: 3
+  timeout: 600
+
+model:
+  name: "model-name"
+  temperature: 0.0
+  top_p: 0.9
+  max_tokens: 2048        # 推理型 VLM 需要較長輸出，過短會截斷 \boxed{}
+  frequency_penalty: 0.0
+  presence_penalty: 0.0
+  extra_body:
+
+evaluation:
+  dataset_paths:
+    - "datasets/example/vistw_mcq/"     # 先用 21 筆 example 驗證流程
+
+  evaluation_method: "vision_mcq"
+
+  # 本專案的協定：明確要求 \boxed{}。
+  # ⚠️ 需要 #144 合入後才會實際送出（vision 路徑先前不支援 system prompt）。
+  system_prompt:
+    zh: "請仔細觀察圖片並回答問題。可以逐步推理，但最後必須將答案的選項字母放在 \\boxed{} 中，例如 \\boxed{A}。"
+    en: "Look at the image carefully and answer the question. You may reason step by step, but you MUST put the final answer letter in \\boxed{}, for example \\boxed{A}."
+
+  repeat_runs: 1
+  shuffle_options: false  # ⚠️ 不可設為 true：重排會丟棄 image_path，導致評測到零題（#141）
+
+  strategy_config:
+    image_field: "image_path"
+    max_image_size: null    # 最長邊像素數；null 為不縮放（縮放需 Pillow）
+    image_detail: "auto"    # auto / low / high
+
+logging:
+  level: "INFO"

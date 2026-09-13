@@ -77,8 +77,19 @@
 | 目錄 | 來源 | 題數 | 評測方法 | 說明 |
 |------|------|------|----------|------|
 | `vision_mcq/` | [Lin-Chen/MMStar](https://huggingface.co/datasets/Lin-Chen/MMStar) | 10 | `vision_mcq` | VLM 多模態選擇題 A–D，含 MMStar coarse/fine perception 與 instance reasoning 範例（內含 jpg 圖片） |
+| `vistw_mcq/` | [miulab/vistw-mcq](https://huggingface.co/datasets/miulab/vistw-mcq) | 21 | `vision_mcq` | VisTW-MCQ — 繁體中文台灣在地視覺選擇題（21 個學科各 1 題，答案分佈已平衡） |
 
 ## 快速開始
+
+### VisTW-MCQ
+
+與 Vision MCQ 相同，額外帶一個 `subject` 欄位（21 個學科之一）供分科統計。
+
+```json
+{"id": "veterinary_medicine_0", "subject": "veterinary_medicine", "image_path": "datasets/example/vistw_mcq/images/veterinary_medicine_0.jpg", "question": "下圖顯示何種組織病變？", "A": "腎類澱粉變性", "B": "肝臟硬化", "C": "脾小樑膠原纖維崩解", "D": "腎動脈纖維化", "answer": "A"}
+```
+
+⚠️ `subject` 目前會被 evaluator 渲染進 prompt（#143），等同學科提示。若要用它看分數而非驗證流程，先移除該欄位。
 
 ### 選擇題（box 模式）
 
@@ -192,6 +203,7 @@ model:
 evaluation:
   dataset_paths:
     - "datasets/example/vision_mcq/"
+    - "datasets/example/vistw_mcq/"
   evaluation_method: vision_mcq
   strategy_config:
     image_field: "image_path"      # 圖片欄位名稱
@@ -296,5 +308,5 @@ POPE Yes/No 格式：
 ## 重新生成
 
 ```bash
-python scripts/create_example_datasets.py
+python scripts/create_example_datasets.py`、`create_vision_mcq_example.py`、`create_vistw_mcq_example.py
 ```

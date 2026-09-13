@@ -224,6 +224,14 @@ BENCHMARK_REGISTRY: Dict[str, Dict[str, Any]] = {
         "eval_method": "vision_mcq",
         "license": "MIT",
     },
+    "vistw_mcq": {
+        "source": "huggingface",
+        "hf_id": "miulab/vistw-mcq",
+        "split": "test",
+        "description": "VisTW-MCQ — 繁體中文台灣在地視覺選擇題（21 學科）",
+        "eval_method": "vision_mcq",
+        "license": "CC-BY-4.0",
+    },
     # ── Text-to-SQL ───────────────────────────────────────────────────────
     "spider": {
         "source": "huggingface",
