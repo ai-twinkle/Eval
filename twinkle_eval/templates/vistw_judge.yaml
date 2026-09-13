@@ -1,0 +1,50 @@
+# VisTW-Dialogue 階段 2：評分
+#
+# 讀階段 1 產生的評分資料集（由 scripts/build_vistw_judge_dataset.py 組成），
+# 由 judge 模型依官方評分指南給 0–10 分。
+#
+# model.name 這裡填的是 **judge 模型**，不是被評測的模型。
+#
+# 指標：
+#   accuracy          ← 及格率（門檻見 vistw_judge_pass_threshold）
+#   judge_score       ← 每列 JSONL 的 0–10 分；解析失敗為 null
+#
+# ⚠️ 0–10 平均分目前**不會**出現在 results_*.json，也不在 JSONL 欄位裡——
+#    score_full() 在文字路徑沒有呼叫點，分數只在 llm_output 的原始回應中。
+#    解析方式見 docs/evals/vistw.md。追蹤於 #163。
+# ⚠️ unparsed_rate 只計入「回應為空」的題目。judge 有回應但格式不符時不計入，
+#    但該題的 judge_score 是 null、不進平均——母體會縮小且無欄位透露。
+
+llm_api:
+  base_url: "http://your-openai-compatible-server/v1"
+  api_key: "your-api-key"
+  api_rate_limit: -1
+  max_retries: 3
+  timeout: 600
+
+model:
+  name: "judge-model"
+  # 官方對每個回答評分 5 次（temperature 0.7）取平均。
+  # ⚠️ 先確認端點真的有套用 temperature：實測某些 vLLM 後端會忽略它，
+  #    此時多次評分只是重複相同計算、把 API 用量乘以 5。
+  #    用同一 prompt 連送數次確認回應有差異後再開 repeat_runs。
+  temperature: 0.7
+  top_p: 0.9
+  # 實測（gemma 4 31B 當 judge，12 題 × 5 次）：completion tokens 平均 991、
+  # 最大 1599，42% 的回應 ≥1024。設 1024 會讓約一半的 judge 回應在吐出
+  # 「[評分]: N」之前被截斷 → 解析失敗 → 平均分的母體靜默縮小。
+  max_tokens: 4096
+  extra_body:
+
+evaluation:
+  dataset_paths:
+    - "datasets/example/vistw_dialogue_judge/judge.jsonl"
+  evaluation_method: "vistw_judge"
+  repeat_runs: 5
+  shuffle_options: false
+
+  strategy_config:
+    vistw_judge_pass_threshold: 6.0   # accuracy 的及格線；不影響 avg_judge_score
+
+logging:
+  level: "INFO"

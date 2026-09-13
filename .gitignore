@@ -143,3 +143,6 @@ issues_analysis.md
 
 # Claude Code 本機設定（含 permission 規則，可能夾帶 API 金鑰，不得進版控）
 .claude/settings.local.json
+
+# VisTW-Dialogue 階段 2 的評分資料集是階段 1 的產物，由腳本重新產生
+datasets/example/vistw_dialogue_judge/

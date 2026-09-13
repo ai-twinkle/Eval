@@ -78,6 +78,7 @@
 |------|------|------|----------|------|
 | `vision_mcq/` | [Lin-Chen/MMStar](https://huggingface.co/datasets/Lin-Chen/MMStar) | 10 | `vision_mcq` | VLM 多模態選擇題 A–D，含 MMStar coarse/fine perception 與 instance reasoning 範例（內含 jpg 圖片） |
 | `vistw_mcq/` | [miulab/vistw-mcq](https://huggingface.co/datasets/miulab/vistw-mcq) | 21 | `vision_mcq` | VisTW-MCQ — 繁體中文台灣在地視覺選擇題（21 個學科各 1 題，答案分佈已平衡） |
+| `vistw_dialogue/` | [miulab/vistw-dialogue](https://huggingface.co/datasets/miulab/vistw-dialogue) | 12 | `vistw_dialogue` + `vistw_judge` | VisTW-Dialogue — 繁中開放式視覺問答，兩階段評測（生成 → LLM judge 給 0–10 分） |
 
 ## 快速開始
 
@@ -87,9 +88,27 @@
 
 ```json
 {"id": "veterinary_medicine_0", "subject": "veterinary_medicine", "image_path": "datasets/example/vistw_mcq/images/veterinary_medicine_0.jpg", "question": "下圖顯示何種組織病變？", "A": "腎類澱粉變性", "B": "肝臟硬化", "C": "脾小樑膠原纖維崩解", "D": "腎動脈纖維化", "answer": "A"}
+
+# VisTW-Dialogue 是兩階段，不能只改 dataset_paths：
+#   1. evaluation_method: vistw_dialogue  → 生成回答
+#   2. python scripts/build_vistw_judge_dataset.py ...
+#   3. evaluation_method: vistw_judge     → judge 評分
+# 詳見 docs/evals/vistw.md
 ```
 
 ⚠️ `subject` 目前會被 evaluator 渲染進 prompt（#143），等同學科提示。若要用它看分數而非驗證流程，先移除該欄位。
+
+### VisTW-Dialogue
+
+開放式問答，沒有選項欄位。參考答案放在 `answer`。
+
+```json
+{"id": "1298207433180839936", "image_path": "datasets/example/vistw_dialogue/images/1298207433180839936.jpg", "question": "這是在捷運上的照片，請問兩種顏色的椅子各自代表什麼？", "answer": "這是台北捷運的設計，淺藍色椅子代表一般作為，深藍色椅子代表博愛座"}
+```
+
+⚠️ 參考答案**只能**放在 `answer`（部分紀錄的 `answer` 以 `": "` 開頭，是上游原貌，刻意保留）。evaluator 組題目時會排除 `question` 與 `answer`，
+但**不會**排除其他欄位——若另存成 `ground_truth` 之類，正解會被當成一般欄位印進 prompt，
+等於直接餵給模型。
 
 ### 選擇題（box 模式）
 
