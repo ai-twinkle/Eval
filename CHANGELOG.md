@@ -5,6 +5,41 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.10.0] - 2026-09-15
+
+> ⚠️ **視覺評測的分數會上升。** `mmbench`、`mmstar`、`mmmu`、`pope`、`vistw_mcq`
+> 都受 #166 的修復影響——先前抓不到的答案現在讀得到了。與舊版分數不可直接比較。
+
+### Added
+- **VisTW 繁體中文台灣在地視覺語言評測**（Milestone #23，arXiv 2503.10427，CC BY 4.0）。
+  這是本專案第一個繁中視覺評測——既有的 MMBench、MMStar、MMMU、POPE 全是英文或簡體中文為主。
+  - **MCQ 子集**（21 學科）：沿用既有的 `vision_mcq`，不新增評測方法。兩個協定範本：
+    `vistw_mcq.yaml`（要求 `\boxed{}`，本專案協定）與 `vistw_mcq_native.yaml`（官方
+    `BASELINE_PROMPT` 逐字，用於對比 leaderboard）
+  - **Dialogue 子集**：新增 `vistw_dialogue`（生成）與 `vistw_judge`（LLM judge 0–10 分）
+    兩個評測方法。兩階段都走既有的 evaluator 路徑，evaluator 未改動
+  - `scripts/build_vistw_judge_dataset.py`、example 資料集、`docs/evals/vistw.md`
+
+### Fixed
+- **`VisionMCQExtractor` 抓不到 `答案: $A`**（#166）：官方 VisTW 的 prompt 教模型輸出
+  「答案: $字母」，模型照抄那個 `$`。更嚴重的是抓不到之後會退而用較寬鬆的 pattern
+  **抓到推理文字中的其他字母，把正確作答判成答錯**——那比 unparsed 危險，因為它不會
+  出現在 `unparsed_rate` 裡。現比照官方在比對前剝掉 `$`。
+  實測 253 題：75.89%（11 題 unparsed）→ **81.82%（0 題 unparsed）**。
+- **`--benchmark` 因缺少 `import copy` 而 `NameError` 崩潰**（#161/#162）：2.9.0 移除
+  `main.py` 的 runner class 時把 `import copy` 一併帶走，而 `--benchmark` 的金鑰清理
+  還在用它。
+
+### Changed
+- VisTW 範本的 `max_tokens` 2048 → 8192。推理型 VLM（如 gemma 4）會在寫出答案前用掉
+  大量 token，實測 2048 時 19% 因截斷而 unparsed、分數低估 19 個百分點；不設上限則會
+  推理到代理層逾時。
+
+### 對比驗證
+與官方實作（TMMMU-Benchmark/evaluation）在相同模型、相同端點、相同 253 題下對比：
+**Twinkle Eval 81.01% vs 官方 80.56%，差 0.45 個百分點**，在 §6.3 的 ±2% 容差內。
+完整方法與四項對齊修改記錄於 `docs/evals/vistw.md` §6。
+
 ## [2.9.0] - 2026-09-13
 
 > ⚠️ **本版會改變評測分數。** 修正了題目 metadata 欄位被送進 prompt 的問題（#143）。
