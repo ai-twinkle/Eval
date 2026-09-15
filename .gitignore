@@ -146,3 +146,4 @@ issues_analysis.md
 
 # VisTW-Dialogue 階段 2 的評分資料集是階段 1 的產物，由腳本重新產生
 datasets/example/vistw_dialogue_judge/
+datasets/vistw_mcq_250/

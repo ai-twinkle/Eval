@@ -13,6 +13,26 @@ from typing import Any, Dict, List, Optional
 from twinkle_eval.core.abc import Extractor
 
 
+def normalize_response(text: str) -> str:
+    """剝掉會擋住答案 pattern 的 markdown 與 LaTeX 標記。
+
+    官方 VisTW 實作（``simplevals/utils.py`` 的 ``normalize_response()``）在
+    做 regex 之前會先這樣清一次，我們原本沒有，於是 ``答案: $A`` 完全抓不到
+    ——而那正是官方 ``BASELINE_PROMPT`` 自己教模型輸出的格式
+    （「格式： 答案: $字母」），模型照抄就中招（#166）。
+
+    順序有意義：先處理 ``$\boxed{`` 這種組合形式，再處理裸 ``$``，
+    否則會把 ``\boxed{}`` 的解析一起破壞掉。
+    """
+    return (
+        text.replace("$\\boxed{", "\\boxed{")
+        .replace("$\\box{", "\\box{")
+        .replace("}$", "}")
+        .replace("\\$", "")
+        .replace("$", "")
+    )
+
+
 class VisionMCQExtractor(Extractor):
     """Vision Multiple-Choice Extractor。
 
@@ -116,6 +136,10 @@ class VisionMCQExtractor(Extractor):
         """
         if not self.validate_output(llm_output):
             return None
+
+        # 先正規化，否則「答案: $A」這類照抄 prompt 格式的輸出會完全抓不到，
+        # 而且會退而抓到推理文字裡的其他字母，把正確作答判成答錯（#166）。
+        llm_output = normalize_response(llm_output)
 
         # 1. 最高優先序：\boxed{} / \box{}（推理型 VLM 的標準輸出）
         for pattern in self._boxed_patterns:
