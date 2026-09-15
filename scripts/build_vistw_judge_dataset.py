@@ -12,9 +12,8 @@ VisTW-Dialogue 是兩階段評測：
 judge 提示詞移植自 VisTW 官方實作 ``simplevals/prompts.py`` 的 HUMAN_GUIDELINE
 （https://github.com/TMMMU-Benchmark/evaluation，CC BY 4.0）。
 
-用法：
+用法（省略 --generation 會自動取 results/ 下最新的一個）：
     python scripts/build_vistw_judge_dataset.py \
-        --generation results/eval_results_20260913_1030_run0.jsonl \
         --dataset datasets/example/vistw_dialogue/test.jsonl \
         --out datasets/example/vistw_dialogue_judge/judge.jsonl
 """
@@ -63,18 +62,42 @@ def load_jsonl(path: Path) -> List[dict]:
 
 def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__)
-    ap.add_argument("--generation", required=True, help="階段 1 的 eval_results_*.jsonl")
+    ap.add_argument(
+        "--generation",
+        help="階段 1 的 eval_results_*.jsonl；省略時自動取 results/ 下最新的一個",
+    )
     ap.add_argument(
         "--dataset", required=True, help="原始 VisTW-Dialogue 資料集（參考答案在 answer 欄位）"
     )
     ap.add_argument("--out", required=True, help="階段 2 資料集的輸出路徑")
     args = ap.parse_args()
 
+    if not args.generation:
+        candidates = sorted(
+            Path("results").glob("eval_results_*_run0.jsonl"),
+            key=lambda p: p.stat().st_mtime,
+            reverse=True,
+        )
+        if not candidates:
+            ap.error(
+                "找不到 results/eval_results_*_run0.jsonl，請先執行階段 1，或用 --generation 指定"
+            )
+        args.generation = str(candidates[0])
+        print(f"自動選用最新的生成結果：{args.generation}")
+
+    gen_path = Path(args.generation)
+    if not gen_path.exists():
+        ap.error(
+            f"找不到 {gen_path}。"
+            "若是從文件複製指令，記得把 {timestamp} 換成實際的檔名，"
+            "或直接省略 --generation 讓腳本自動選最新的一個。"
+        )
+
     source = load_jsonl(Path(args.dataset))
     # 階段 1 的 question_id 是資料集中的索引（evaluator 以 enumerate 產生）
     by_index: Dict[int, dict] = {i: row for i, row in enumerate(source)}
 
-    generated = load_jsonl(Path(args.generation))
+    generated = load_jsonl(gen_path)
     records, skipped = [], 0
 
     for g in generated:

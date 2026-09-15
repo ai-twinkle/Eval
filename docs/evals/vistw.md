@@ -97,8 +97,8 @@ VisTW-Dialogue 是開放式問答，由 LLM judge 給 0–10 分。實作為兩�
 twinkle-eval --config configs/vistw_dialogue.yaml
 
 # 中間步驟：把生成結果併上 ground_truth，組成評分資料集
+# 省略 --generation 會自動取 results/ 下最新的生成結果
 python scripts/build_vistw_judge_dataset.py \
-    --generation results/eval_results_{timestamp}_run0.jsonl \
     --dataset datasets/example/vistw_dialogue/test.jsonl \
     --out datasets/example/vistw_dialogue_judge/judge.jsonl
 # ⚠️ 輸出**不可**放進階段 1 的 dataset_paths 目錄——
