@@ -1,10 +1,11 @@
 """Tests for Vision MCQ (VLM 視覺多選題) evaluation method."""
 
+import pytest
+
 from twinkle_eval.benchmarks import BENCHMARK_REGISTRY
 from twinkle_eval.metrics import PRESETS, create_metric_pair
 from twinkle_eval.metrics.extractors.vision_mcq import VisionMCQExtractor
 from twinkle_eval.metrics.scorers.exact import ExactMatchScorer
-
 
 # ---------------------------------------------------------------------------
 # VisionMCQExtractor
@@ -87,7 +88,9 @@ class TestVisionMCQExtractor:
         assert result == "A", f"應抓到 A，而非 {result!r}"
 
     def test_extract_correct_option_is(self) -> None:
-        text = "Based on the image, the correct option is:\n\n**D: The suitcase is beneath the book**"
+        text = (
+            "Based on the image, the correct option is:\n\n**D: The suitcase is beneath the book**"
+        )
         assert self.extractor.extract(text) == "D"
 
     def test_extract_parenthesized_letter(self) -> None:
@@ -150,73 +153,35 @@ class TestVisionMCQExtractor:
     def test_extract_option_echo_then_answer(self) -> None:
         # 修正前：pattern 9（line-letter）抓到 "A) cat" 的 A
         text = (
-            "Looking at the image:\n"
-            "A) cat\n"
-            "B) dog\n"
-            "C) bird\n"
-            "D) fish\n"
-            "\n"
-            "Answer: C"
+            "Looking at the image:\n" "A) cat\n" "B) dog\n" "C) bird\n" "D) fish\n" "\n" "Answer: C"
         )
         assert self.extractor.extract(text) == "C"
 
     def test_extract_option_echo_with_trailing_letter(self) -> None:
         # 沒有 "Answer:" 字面，只有結尾單字母
-        text = (
-            "The image shows several options:\n"
-            "A) cat\n"
-            "B) dog\n"
-            "C) bird\n"
-            "\n"
-            "C"
-        )
+        text = "The image shows several options:\n" "A) cat\n" "B) dog\n" "C) bird\n" "\n" "C"
         assert self.extractor.extract(text) == "C"
 
     def test_extract_option_echo_then_correct_answer_label(self) -> None:
-        text = (
-            "Options:\n"
-            "A. apple\n"
-            "B. banana\n"
-            "C. cherry\n"
-            "\n"
-            "Correct Answer: B"
-        )
+        text = "Options:\n" "A. apple\n" "B. banana\n" "C. cherry\n" "\n" "Correct Answer: B"
         assert self.extractor.extract(text) == "B"
 
     def test_extract_answer_outside_echoed_options_with_label(self) -> None:
         # 答案 D 不在 echo list (A/B/C) 內，且明確用 "Answer: D" 標示
-        text = (
-            "A) cat\n"
-            "B) dog\n"
-            "C) bird\n"
-            "\n"
-            "Answer: D"
-        )
+        text = "A) cat\n" "B) dog\n" "C) bird\n" "\n" "Answer: D"
         assert self.extractor.extract(text) == "D"
 
     def test_extract_answer_outside_echoed_options_bare_letter(self) -> None:
         # 答案 D 不在 echo list (A/B/C) 內，沒有 "Answer:" 字面，只在結尾留下單字母 D。
         # 修正前 line-start letter pattern 會抓到最後一個 echo 字母 C，
         # 修正後 bare-letter-at-end pattern 優先於 line-start，正確抓到 D。
-        text = (
-            "A) cat\n"
-            "B) dog\n"
-            "C) bird\n"
-            "\n"
-            "D"
-        )
+        text = "A) cat\n" "B) dog\n" "C) bird\n" "\n" "D"
         assert self.extractor.extract(text) == "D"
 
     def test_extract_answer_inside_echoed_options_bare_letter(self) -> None:
         # 對稱案例：答案 C 在 echo list 內，結尾以單字母 C 結束。
         # 確保 pattern reorder 對「答案在 echo 內」的常見情境仍正確（不應誤抓 A）。
-        text = (
-            "A) cat\n"
-            "B) dog\n"
-            "C) bird\n"
-            "\n"
-            "C"
-        )
+        text = "A) cat\n" "B) dog\n" "C) bird\n" "\n" "C"
         assert self.extractor.extract(text) == "C"
 
     # ── \boxed{} / \box{} 支援（推理型 VLM 標準輸出）─────────────────────────
@@ -343,8 +308,52 @@ class TestVisionMCQBenchmarks:
 class TestVisionMCQExports:
     def test_export_from_metrics(self) -> None:
         from twinkle_eval.metrics import VisionMCQExtractor as Exported
+
         assert Exported is VisionMCQExtractor
 
     def test_export_from_top_level(self) -> None:
         from twinkle_eval import VisionMCQExtractor as Exported
+
         assert Exported is VisionMCQExtractor
+
+
+class TestDollarSignNormalization:
+    """回歸 #166：官方 BASELINE_PROMPT 教模型輸出「答案: $字母」，模型照抄。
+
+    先前完全抓不到，而且會退而抓取推理文字裡的其他字母，把正確作答判成答錯
+    ——那比 unparsed 危險，因為它不會出現在 unparsed_rate 裡。
+    """
+
+    @pytest.fixture
+    def extractor(self):
+        return VisionMCQExtractor()
+
+    @pytest.mark.parametrize(
+        "response,expected",
+        [
+            ("答案: $A", "A"),
+            ("答案：$D", "D"),
+            ("答案: $ B", "B"),
+            ("Answer: $C", "C"),
+        ],
+    )
+    def test_dollar_prefixed_letter(self, extractor, response, expected):
+        assert extractor.extract(response) == expected
+
+    def test_does_not_fall_back_to_letter_in_reasoning(self):
+        """關鍵案例：實測 medical_0 / medical_4 就是這樣被判錯的。"""
+        response = (
+            "選項 D 描述的是另一種病變，不符合。\n" "**結論**：最可能的診斷是子宮肌瘤。\n\n答案: $A"
+        )
+        assert VisionMCQExtractor().extract(response) == "A"
+
+    def test_boxed_still_works_with_dollar_wrapper(self):
+        """LaTeX 常寫成 $\\boxed{X}$，正規化不得破壞 boxed 解析。"""
+        e = VisionMCQExtractor()
+        assert e.extract("$\\boxed{C}$") == "C"
+        assert e.extract("答案是 \\boxed{B}") == "B"
+
+    def test_yes_no_unaffected(self):
+        e = VisionMCQExtractor()
+        assert e.extract("\\boxed{yes}") == "Yes"
+        assert e.extract("答案是否") in ("No", None)
