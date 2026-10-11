@@ -8,9 +8,11 @@
 #    品質由階段 2 的 judge 評 0–10 分。
 
 llm_api:
+  type: "openai"                # LLM 後端（openai | openai_responses | whisper）
   base_url: "http://your-openai-compatible-server/v1"
   api_key: "your-api-key"
   api_rate_limit: -1
+  max_workers: null              # 並行請求執行緒數（null 使用系統預設）
   max_retries: 3
   timeout: 600
 

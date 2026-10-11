@@ -313,7 +313,7 @@ echo "透過 srun 部署任務到各個節點..."
 # 在啟動所有 worker 之前，由 head node 統一記錄並匯出固定時間戳。
 # SLURM 會自動將已匯出的環境變數傳遞給所有 srun task，
 # 確保所有 node/rank 使用相同的時間戳，避免跨分鐘邊界造成合併失敗。
-RUN_TIMESTAMP=$(date +"%Y%m%d_%H%M")
+RUN_TIMESTAMP=$(date +"%Y%m%d_%H%M%S")
 export TWINKLE_EVAL_RUN_TIMESTAMP="${RUN_TIMESTAMP}"
 echo "本次評測時間戳 (RUN_TIMESTAMP): ${RUN_TIMESTAMP}"
 

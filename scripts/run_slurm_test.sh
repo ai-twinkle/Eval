@@ -172,7 +172,7 @@ echo "============================================="
 
 # 在啟動所有 worker 之前，統一記錄並匯出固定時間戳。
 # 所有 rank subshell 都會繼承此環境變數，確保使用相同時間戳，避免合併失敗。
-RUN_TIMESTAMP=$(date +"%Y%m%d_%H%M")
+RUN_TIMESTAMP=$(date +"%Y%m%d_%H%M%S")
 export TWINKLE_EVAL_RUN_TIMESTAMP="${RUN_TIMESTAMP}"
 echo "本次評測時間戳 (RUN_TIMESTAMP): ${RUN_TIMESTAMP}"
 

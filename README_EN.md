@@ -330,7 +330,7 @@ This file is mainly used to **consolidate summary information for the entire eva
 
 ```json
 {
-  "timestamp": "20250314_1158", // Evaluation execution timestamp
+  "timestamp": "20250314_115800", // Evaluation execution timestamp
   "results": [
     // Evaluation results for each test file
     {
@@ -384,7 +384,7 @@ This file (JSONL format) is used to **record answer status for each question in 
 
 ```json
 {
-  "timestamp": "20250314_1158",  // Evaluation execution timestamp
+  "timestamp": "20250314_115800",  // Evaluation execution timestamp
   "file": "datasets/test/basic_medical_science_train.csv",  // Test file path
   "accuracy": 0.4,  // Model's overall accuracy on this file
 

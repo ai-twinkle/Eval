@@ -1,6 +1,6 @@
 """核心抽象類別與工具模組。"""
 
-from .abc import Extractor, LLM, ResultsExporter, Scorer
+from .abc import LLM, Extractor, ResultsExporter, Scorer
 from .exceptions import (
     ConfigurationError,
     DatasetError,
@@ -10,14 +10,12 @@ from .exceptions import (
     TwinkleEvalError,
     ValidationError,
 )
-from .registry import Registry
 
 __all__ = [
     "LLM",
     "Extractor",
     "Scorer",
     "ResultsExporter",
-    "Registry",
     "TwinkleEvalError",
     "ConfigurationError",
     "LLMError",

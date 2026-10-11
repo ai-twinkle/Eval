@@ -131,8 +131,7 @@ def score_ifbench(
 
         # Loose：任一 variant 通過即可
         loose_ok = any(
-            _check_instruction(inst_id, kw, variant, prompt=prompt)
-            for variant in loose_variants
+            _check_instruction(inst_id, kw, variant, prompt=prompt) for variant in loose_variants
         )
         loose_results.append(loose_ok)
 

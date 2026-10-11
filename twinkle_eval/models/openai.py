@@ -101,11 +101,14 @@ class OpenAIModel(LLM):
 
         payload: Dict[str, Any] = {
             "model": model_config["name"],
-            "temperature": overrides.get("temperature", model_config["temperature"]),
-            "top_p": overrides.get("top_p", model_config["top_p"]),
             "max_tokens": overrides.get("max_tokens", model_config["max_tokens"]),
             "messages": built_messages,
         }
+        # temperature / top_p 為 null 時不送出，交由伺服器使用預設值
+        for param in ("temperature", "top_p"):
+            value = overrides.get(param, model_config.get(param))
+            if value is not None:
+                payload[param] = value
 
         if num_samples > 1:
             payload["n"] = num_samples

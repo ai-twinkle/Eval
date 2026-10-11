@@ -76,9 +76,7 @@ def create_metric_pair(
     """
     if evaluation_method not in PRESETS:
         available = ", ".join(sorted(PRESETS))
-        raise KeyError(
-            f"evaluation_method '{evaluation_method}' 不存在。可用方法: {available}"
-        )
+        raise KeyError(f"evaluation_method '{evaluation_method}' 不存在。可用方法: {available}")
     extractor_cls, scorer_cls = PRESETS[evaluation_method]
     cfg = config or {}
     return extractor_cls(cfg), scorer_cls(cfg)

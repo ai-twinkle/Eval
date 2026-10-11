@@ -123,7 +123,7 @@ git diff --staged | grep -i "api_key"         # commit 前確認
 ## 4. 執行
 
 ```bash
-twinkle-eval --validate --config config_local_myrun.yaml   # 只驗設定與資料集，不呼叫 API
+twinkle-eval --validate --config config_local_myrun.yaml   # 驗設定與資料集，並對 API 端點試打一次
 twinkle-eval --dry-run  --config config_local_myrun.yaml   # 顯示評測計畫，不呼叫 API
 twinkle-eval --config config_local_myrun.yaml              # 正式跑
 twinkle-eval --config config_local_myrun.yaml --export json csv html excel
