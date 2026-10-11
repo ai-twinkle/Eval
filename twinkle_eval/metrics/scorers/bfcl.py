@@ -6,7 +6,6 @@ from typing import Any, Dict, List, Optional
 
 from twinkle_eval.core.abc import Scorer
 
-
 # ── 值比對工具 ──────────────────────────────────────────────────────────────────
 
 
@@ -81,13 +80,16 @@ def _call_matches(predicted_call: Dict, gt_call: Dict) -> bool:
     gt_func_name = list(gt_call.keys())[0]
     gt_params: Dict[str, List] = gt_call[gt_func_name]
 
-    pred_name = predicted_call.get("name", "")
+    pred_name = predicted_call.get("name") or ""
     pred_args = predicted_call.get("arguments", {})
     if isinstance(pred_args, str):
         try:
             pred_args = json.loads(pred_args)
         except (json.JSONDecodeError, TypeError):
             pred_args = {}
+    if not isinstance(pred_args, dict):
+        # 模型給出非物件的參數（如 5、null、list）時判為不符，而不是在比對參數時拋例外
+        return False
 
     # function name 比對（統一將 "." 替換為 "_"，對齊 OpenAI FC 模式轉換）
     normalized_pred = pred_name.replace(".", "_")

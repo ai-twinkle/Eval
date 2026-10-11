@@ -25,9 +25,7 @@ class StringMatchScorer(Scorer):
         super().__init__(config)
         self._mode: str = self._config.get("normalize_mode", "strip")
         if self._mode not in self.VALID_MODES:
-            raise ValueError(
-                f"normalize_mode '{self._mode}' 不支援。可用模式: {self.VALID_MODES}"
-            )
+            raise ValueError(f"normalize_mode '{self._mode}' 不支援。可用模式: {self.VALID_MODES}")
 
     def get_name(self) -> str:
         return "string_match"

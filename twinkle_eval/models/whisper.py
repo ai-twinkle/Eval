@@ -86,9 +86,9 @@ class WhisperModel(LLM):
 
         model_name = self.config["model"]["name"]
         overrides = model_overrides or {}
-        temperature = overrides.get(
-            "temperature", self.config["model"].get("temperature", 0.0)
-        )
+        temperature = overrides.get("temperature", self.config["model"].get("temperature", 0.0))
+        # temperature 為 null 時不送出，與 openai / openai_responses 後端一致
+        optional: Dict[str, Any] = {} if temperature is None else {"temperature": temperature}
 
         # 呼叫 Whisper API
         with open(audio_path, "rb") as audio_file:
@@ -96,8 +96,8 @@ class WhisperModel(LLM):
                 model=model_name,
                 file=audio_file,
                 language=prompt_lang if prompt_lang != "zh" else "zh",
-                temperature=temperature,
                 response_format="verbose_json",
+                **optional,
             )
 
         # 取得轉錄文字

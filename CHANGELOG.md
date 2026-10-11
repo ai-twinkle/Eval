@@ -5,6 +5,104 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+> ⚠️ **有 API 失敗的評測，分數會改變。** 失敗的題目（重試耗盡）現在計為答錯並計入分母，
+> 先前則是不計入分母而使分數偏高。IFEval 的 instruction-level 指標與 ASR 的 WER / CER
+> 同樣計入失敗題。
+>
+> ⚠️ **logprobs（`logit`）評測遇到端點不支援 echo / logprobs 時會改為報錯**：
+> 先前每題都回報 unparsed、整檔以 0% 正確率計入結果；現在視為 API 失敗，整檔拋出
+> `EvaluationError` 並排除在 `repeat_runs` 平均之外。
+>
+> ⚠️ **Parquet / CSV 資料集的自由作答題分數可能變動。** answer 正規化改為所有檔案格式一致：
+> 只有當 answer 是 1–2 個字母、且對應到該題實際存在的選項鍵時才去空白並轉大寫。先前
+> Parquet / CSV 會把所有 answer 轉大寫並去空白，破壞了數學（`\frac` → `\FRAC`）、SQL、
+> 逐字稿等 gold answer；JSON / JSONL 則完全不正規化。選擇題分數不受影響（scorer 本身會正規化）。
+>
+> ⚠️ **結果檔名的時間戳改為秒級**：`results_{timestamp}.json` 與
+> `eval_results_{timestamp}_run{N}.jsonl` 的 `{timestamp}` 由 `%Y%m%d_%H%M` 改為
+> `%Y%m%d_%H%M%S`。依檔名格式解析結果的下游工具需調整；舊格式的結果仍可用 `--resume` 續跑。
+
+### Added
+- **OpenAI Responses API 後端**（`llm_api.type: "openai_responses"`）：呼叫 `/v1/responses`，
+  於 `call()` 內轉換為 ChatCompletion 格式，所有評測路徑不需修改。支援多模態輸入、
+  reasoning summary（對應 `message.reasoning`）、tool calls；`num_samples > 1` 以多次請求合併；
+  `max_tokens` 對應 `max_output_tokens`，frequency / presence penalty 不支援而忽略；
+  `finish_reason` 依回應狀態對應（截斷為 `length`、tool calls 為 `tool_calls`）。
+  reasoning summary 需在 `extra_body` 設定 `reasoning.summary` 才會回傳
+- **`--convert-to-excel JSONL_FILE`**：將逐題結果 JSONL 轉為 `.xlsx`，常用欄位在前、
+  各 benchmark 的額外欄位依出現順序附加；處理 Excel 儲存格長度上限與非法控制字元，
+  `=` 開頭的內容一律以純文字寫入（避免模型輸出在開檔時被當成公式執行）。
+  需安裝新的可選依賴群組 `twinkle-eval[excel]`（openpyxl）
+- `llm_api.max_workers`（可選，預設 `null`；必須是正整數或 `null`，由 `--validate` 檢查）：
+  控制並行請求的執行緒數，各範本已加入此欄位；`llm_api.type` 也加入各範本以標示可選的後端
+- `model.temperature` / `model.top_p` 可設為 `null`：不送出該參數、交由伺服器決定
+  （OpenAI o 系列等推理模型不接受 temperature）。Responses API 的 reasoning 設定
+  （如 `reasoning: {effort: ..., summary: "auto"}`）透過 `model.extra_body` 傳入
+- 分散式腳本（`scripts/run_slurm_*.sh`）匯出的 `TWINKLE_EVAL_RUN_TIMESTAMP` 現在會被 runner
+  採用，各節點寫入同一組檔名，之後即可用該時間戳執行 `--finalize-results`
+- 多資料集評測時，每完成一個資料集就印出累計成績
+
+### Changed
+- **evaluator 依 Extractor 的 capability flag 分派評測管線**：`evaluate_file()` 拆成七條
+  獨立的 `_run_*_pipeline()`，以 `Evaluator._PIPELINES` 資料驅動分派；統計與逐題紀錄
+  集中於 `_EvalAccumulator`。新增評測路徑時只需註冊，不需修改 `evaluate_file()`。
+  在沒有 API 失敗、沒有 `--resume` 的情況下，七條路徑送出的 prompt、JSONL 內容與 metrics
+  與先前相同（JSONL 多了 `file` 欄位）
+- JSONL 每列新增 `file` 欄位（來源資料集檔案路徑），作為 `--resume` 比對已完成題目的依據
+- **`--validate` 會對 API 端點試打一次**：結構驗證通過後，及早回報連線 / API 金鑰 / 模型名稱
+  錯誤並以 exit code 1 結束。試打使用 30 秒 timeout 且不重試；`logit` 方法改以 completions
+  logprobs 試打，音檔評測略過；`--dry-run` 仍不連網
+- pandas / pyarrow / HF `datasets` 改為在函式內延遲載入，純 JSONL 評測不再負擔其啟動時間
+- HTML 報表的逐題渲染去重複，改以 list 組裝字串
+- 套件全面以 black / isort 格式化（不改變行為）
+
+### Fixed
+- **單題 API 失敗不再毀掉整檔結果，也不再灌水分數**：失敗的 sample 計為答錯，
+  `failed_count` 寫入逐檔 metrics 與 `results_*.json`（`failed_count`、`total_failed_count`）。
+  失敗題不寫入 JSONL，`--resume` 會重新評測它們
+- **整檔 API 全部失敗時拋出 `EvaluationError`**，而不是回報 `accuracy = 0` 並被計入
+  `repeat_runs` 的平均
+- **logprobs 路徑任一選項失敗即整題視為失敗**：`score_continuation()` 出錯時回傳 `-inf`，
+  先前會在其餘選項中挑答案並照常計分
+- **`--resume` 先前從未跳過任何題目**：讀取已完成紀錄時比對的 `file` 欄位，evaluator 從未寫入。
+  現在已完成的題目會跳過，其結果回填進統計，summary 涵蓋整個資料集；回填涵蓋
+  `samples_per_question > 1` 的每個 sample，以及 IFEval（`prompt_loose`、`instruction_*`）與
+  ASR（WER / CER）的附加指標。缺少 `file` 欄位的舊版結果列無法比對，會提示並重新評測；
+  讀到紀錄卻沒有任何一筆對應到評測檔案時（例如資料集路徑寫法改變）也會提示
+- `scorer.score_full` 的 introspection 延遲到 IFEval 路徑首次使用時才進行
+- `shuffle_options` 只套用在選擇題路徑（logprobs / vision / text）
+
+- **`--download-dataset` 在指定的 split 不存在時改為下載所有 split**：先前假設一定有 `test`
+  split，split 名稱自訂的資料集會完全下載失敗；多個 split 也不再互相覆蓋同名 parquet 檔
+- 開啟 Google Drive 上傳時，本次評測的 log 檔一定會被上傳：先前以 runner 的時間戳比對 log
+  檔名，而 log 檔的時間戳在 import 時決定，兩者不在同一秒（秒級時間戳下）就會漏傳
+
+- **BFCL FC（`bfcl_fc`）遇到不合法的 tool call 參數不再中止整個檔案**：先前一題的 arguments
+  不是合法 JSON（或是 `5`、`null` 這類非物件的 JSON）就會拋出例外，該檔案已完成的題目也
+  一併遺失。現在該題計為無法解析，原始 tool calls 保存在 JSONL 新增的 `tool_calls` 欄位；
+  arguments 缺少、為空字串或只有空白時視為沒有參數。`BFCLScorer` 遇到非物件參數時判為不符
+  （`bfcl_prompt` 路徑同樣受保護）
+- **BFCL FC 保存推理內容**：`llm_reasoning_output` 先前固定為 null，現在與其他路徑一樣
+  讀取 `message.reasoning` / `reasoning_content`
+- **`--download-dataset bfcl` 可以使用了**：HF repo 只有原始的 `BFCL_v3_*.json`，`load_dataset`
+  無法讀取，下載一律失敗。現在逐檔下載題目與答案並以 `merge_bfcl_files` 合併為
+  `datasets/bfcl/{category}.jsonl`（8 個單輪 AST 類別，共 2,350 題）。HF repo 版本鎖定為
+  已驗證的 revision；任一類別下載失敗時不會留下只有部分類別的目錄
+
+### Removed
+- `twinkle_eval.core.Registry`：匯出但從未被使用（各工廠有自己的註冊表）
+- `core/validators.py` 的 `validate_dataset_content` 與 `RuntimeValidator`：沒有任何呼叫端，
+  且前者硬編碼 A/B/C/D 選項標籤（違反原則 C）
+
+### 注意
+- JSONL 仍在**整個檔案評測完成後**才寫入。若在檔案評測途中中斷（Ctrl-C、OOM、被搶佔），
+  該檔案已完成的題目不會留下紀錄，`--resume` 會從頭評測該檔案；question-level 續跑只涵蓋
+  已寫出的檔案與 API 失敗的題目
+- 以 `--resume` 續跑時，若剩下的題目全部 API 失敗，因已有回填的結果，不會拋出例外，
+  而是以失敗題計為答錯產生結果（`failed_count` 會反映）
+
 ## [2.10.0] - 2026-09-15
 
 > ⚠️ **視覺評測的分數會上升。** `mmbench`、`mmstar`、`mmmu`、`pope`、`vistw_mcq`

@@ -14,8 +14,7 @@ try:
     from huggingface_hub.utils import RepositoryNotFoundError
 except ImportError:
     raise ImportError(
-        "HuggingFace 上傳功能需要安裝額外套件，請執行：\n"
-        "  pip install twinkle-eval[slurm]"
+        "HuggingFace 上傳功能需要安裝額外套件，請執行：\n" "  pip install twinkle-eval[slurm]"
     )
 
 
@@ -112,7 +111,7 @@ def upload_results(
                 path_in_repo=path_in_repo,
                 repo_id=repo_id,
                 repo_type="dataset",
-                commit_message=f"Upload evaluation results for {model_name} ({timestamp})"
+                commit_message=f"Upload evaluation results for {model_name} ({timestamp})",
             )
 
         dataset_url = f"https://huggingface.co/datasets/{repo_id}/tree/main/{target_dir}"

@@ -20,9 +20,7 @@ class LLMFactory:
         """依類型名稱建立 LLM 實例。"""
         if llm_type not in cls._registry:
             available_types = ", ".join(cls._registry.keys())
-            raise ValueError(
-                f"不支援的 LLM 類型: {llm_type}. 可用類型: {available_types}"
-            )
+            raise ValueError(f"不支援的 LLM 類型: {llm_type}. 可用類型: {available_types}")
         llm_class = cls._registry[llm_type]
         return llm_class(config)
 

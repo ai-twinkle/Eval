@@ -11,6 +11,7 @@ from google_auth_oauthlib.flow import InstalledAppFlow
 from googleapiclient.discovery import build
 from googleapiclient.http import MediaFileUpload
 
+from twinkle_eval.core import logger as logger_module
 from twinkle_eval.core.abc import ResultsExporter
 from twinkle_eval.core.exceptions import ConfigurationError
 from twinkle_eval.core.logger import log_error, log_info
@@ -173,9 +174,14 @@ class GoogleDriveUploader:
             upload_info["folder_name"] = folder_name
 
             if os.path.exists(logs_directory):
+                # logger 的時間戳在 import 時決定，與 runner 的 start_time 不一定在同一秒，
+                # 所以除了時間戳比對，也一定納入本次程序實際寫入的 log 檔
+                current_log = os.path.basename(logger_module.log_filename)
                 log_files = []
                 for file_name in os.listdir(logs_directory):
-                    if file_name.endswith(".log") and start_time in file_name:
+                    if file_name.endswith(".log") and (
+                        start_time in file_name or file_name == current_log
+                    ):
                         file_path = os.path.join(logs_directory, file_name)
                         file_stat = os.stat(file_path)
                         log_files.append(

@@ -14,7 +14,6 @@ from typing import Any, Dict, List, Optional
 
 from .core.logger import log_error, log_info, log_warning
 
-
 # ---------------------------------------------------------------------------
 # Benchmark Registry
 # ---------------------------------------------------------------------------
@@ -126,7 +125,25 @@ BENCHMARK_REGISTRY: Dict[str, Dict[str, Any]] = {
     "bfcl": {
         "source": "huggingface",
         "hf_id": "gorilla-llm/Berkeley-Function-Calling-Leaderboard",
-        "split": "train",
+        "split": "train",  # registry 約定欄位；BFCL 改以 categories 逐檔下載，不使用 split
+        # 鎖定已驗證的版本（8 類別共 2,350 題），HF repo 之後改版不會靜默改變資料集
+        "revision": "61fc0608cfd831fcfbbaa676ebdfef0ed963eeda",
+        # HF repo 只有原始的 BFCL_v3_*.json 與 possible_answer/，沒有 load_dataset 可讀的
+        # data files 設定，因此逐檔下載後以 merge_bfcl_files 合併（見 _download_bfcl）
+        "post_process": "bfcl",
+        # 只取 BFCLScorer 能評分的單輪 AST 類別（有 ground truth）。不含 irrelevance /
+        # relevance（無 possible_answer）、multi_turn、exec / rest、java / javascript、sql，
+        # 因此分數不可與官方 leaderboard 的 Overall 直接比較
+        "categories": [
+            "simple",
+            "multiple",
+            "parallel",
+            "parallel_multiple",
+            "live_simple",
+            "live_multiple",
+            "live_parallel",
+            "live_parallel_multiple",
+        ],
         "description": "BFCL — Berkeley 函式呼叫排行榜",
         "eval_method": "bfcl_fc",
         "license": "Apache-2.0",
@@ -367,7 +384,11 @@ def _download_hf_benchmark(
     skipped_gated: list[str],
 ) -> None:
     """下載 HuggingFace 資料集到 datasets/{name}/。"""
-    from datasets import get_dataset_config_names, load_dataset
+    if info.get("post_process") == "bfcl":
+        _download_bfcl(info, os.path.join(output_dir, name))
+        return
+
+    from datasets import get_dataset_config_names
 
     hf_id = info["hf_id"]
     split = info.get("split", "test")
@@ -431,6 +452,46 @@ def _save_hf_subset(
     ds = load_dataset(hf_id, **kwargs)
     filename = f"{subset}.parquet" if subset and subset != "default" else "data.parquet"
     ds.to_parquet(os.path.join(dest, filename))
+
+
+def _download_bfcl(info: Dict[str, Any], dest: str) -> None:
+    """下載 BFCL 各類別的題目與答案原始檔，合併為 {dest}/{category}.jsonl。
+
+    原始檔以 huggingface_hub 快取下載（HF_TOKEN 環境變數會自動套用），不留在工作目錄。
+    沒有對應答案的題目由 merge_bfcl_files 略過。所有類別先寫入暫存目錄，全部成功後
+    才搬到 dest，避免中途失敗時留下只有部分類別、之後會被當成完整資料集評測的目錄。
+    """
+    import shutil
+    import tempfile
+
+    from huggingface_hub import hf_hub_download
+
+    from twinkle_eval.datasets.bfcl import merge_bfcl_files
+
+    os.makedirs(dest, exist_ok=True)
+    revision = info.get("revision")
+    total = 0
+    with tempfile.TemporaryDirectory(dir=os.path.dirname(os.path.abspath(dest))) as staging:
+        for category in info["categories"]:
+            filename = f"BFCL_v3_{category}.json"
+            # HF 上的 .json 實際上是 JSON Lines 格式，merge_bfcl_files 逐行讀取
+            questions = hf_hub_download(
+                info["hf_id"], filename, repo_type="dataset", revision=revision
+            )
+            answers = hf_hub_download(
+                info["hf_id"], f"possible_answer/{filename}", repo_type="dataset", revision=revision
+            )
+            count = merge_bfcl_files(
+                questions, answers, os.path.join(staging, f"{category}.jsonl"), category=category
+            )
+            log_info(f"  BFCL {category}: {count} 題")
+            total += count
+        for category in info["categories"]:
+            shutil.move(
+                os.path.join(staging, f"{category}.jsonl"), os.path.join(dest, f"{category}.jsonl")
+            )
+    log_info(f"  BFCL 共 {total} 題，已存至 {dest}")
+    _report_download(dest)
 
 
 def _prompt_hf_token(name: str) -> Optional[str]:
@@ -626,7 +687,8 @@ def _download_longbench(url: str, dest: str) -> None:
         with zf.open(matched[0]) as src, open(output_path, "wb") as dst:
             dst.write(src.read())
 
-    line_count = sum(1 for _ in open(output_path, "r", encoding="utf-8"))
+    with open(output_path, "r", encoding="utf-8") as f:
+        line_count = sum(1 for _ in f)
     log_info(f"  完成：{line_count} 筆 → {output_path}")
 
 

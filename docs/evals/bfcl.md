@@ -33,6 +33,13 @@
   - `datasets/example/bfcl_v1/`（15 筆）
   - `datasets/example/bfcl_v2/`（5 筆）
   - `datasets/example/bfcl_v3/`（3 筆）
+- **完整資料集下載**：`twinkle-eval --download-dataset bfcl` 會從 HF 逐檔下載
+  `BFCL_v3_{category}.json` 與 `possible_answer/BFCL_v3_{category}.json`，以
+  `merge_bfcl_files` 合併為 `datasets/bfcl/{category}.jsonl`（共 2,350 題，HF revision 鎖定為
+  `61fc0608`）。只下載 scorer
+  能評分的 8 個單輪 AST 類別：`simple`、`multiple`、`parallel`、`parallel_multiple` 及其
+  `live_*` 版本；不含 irrelevance / relevance、multi_turn、exec / rest、java / javascript、sql，
+  因此分數不可與官方 leaderboard 的 Overall 直接比較
 
 ---
 
@@ -72,7 +79,9 @@ BFCL 衡量模型的 function calling 能力：
 
 ### Extractor
 
-- `ToolCallExtractor`（bfcl_fc）：從 ChatCompletion.tool_calls 提取
+- `ToolCallExtractor`（bfcl_fc）：從 ChatCompletion.tool_calls 提取。tool call 的 arguments
+  無法解析為 JSON 物件時，該題計為無法解析（不會中止整個檔案）；原始 tool calls 保存在 JSONL 的
+  `tool_calls` 欄位，推理內容保存在 `llm_reasoning_output`
 - `BFCLPromptExtractor`（bfcl_prompt）：從文字回應中解析 JSON
 
 ### Scorer

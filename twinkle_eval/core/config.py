@@ -5,9 +5,9 @@ import yaml
 
 from twinkle_eval.core.exceptions import ConfigurationError, ValidationError
 from twinkle_eval.core.logger import log_error, log_info
+from twinkle_eval.core.validators import ConfigValidator, DatasetValidator
 from twinkle_eval.metrics import create_metric_pair, get_available_methods
 from twinkle_eval.models import LLMFactory
-from twinkle_eval.core.validators import ConfigValidator, DatasetValidator
 
 
 class ConfigurationManager:
@@ -189,8 +189,8 @@ class ConfigurationManager:
             raise ConfigurationError("Google Sheets 配置錯誤: spreadsheet_id 為必填項目")
 
         # 僅做本地結構驗證；連線與權限問題交由實際匯出時回報。
-        # 設定載入階段不進行任何網路呼叫（config 模組不做 API 呼叫，
-        # 也確保 --validate / --dry-run 不產生網路流量）。
+        # 設定載入階段不進行任何網路呼叫（config 模組不做 API 呼叫；
+        # --validate 只會對 LLM 端點試打，不會連 Google API，--dry-run 則完全不連網）。
         self._validate_google_auth_config(config, "Google Sheets")
 
     def _validate_google_drive_config(self, config: Dict[str, Any]) -> None:
