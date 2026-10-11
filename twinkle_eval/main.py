@@ -2,6 +2,7 @@ import argparse
 import copy
 import os
 import time
+from typing import Any
 
 from .core.config import load_config
 from .core.logger import log_error
@@ -569,6 +570,24 @@ def _handle_dry_run(config_path: str) -> int:
     return 0
 
 
+def _resume_backfill_fields(record: dict[str, Any]) -> dict[str, Any]:
+    """從 JSONL 結果列取出 --resume 回填統計所需的欄位，其餘（模型輸出等）捨棄以節省記憶體。"""
+    kept = {
+        k: record[k]
+        for k in (
+            "is_correct",
+            "prompt_loose",
+            "instruction_strict",
+            "instruction_loose",
+            "wer",
+            "cer",
+        )
+        if k in record
+    }
+    kept["unparsed"] = record.get("predicted_answer") is None
+    return kept
+
+
 def _handle_resume(config_path: str, timestamp: str, export_formats: list[str]) -> int:
     """處理 --resume：從指定時間戳記的中斷點繼續評測。
 
@@ -594,11 +613,15 @@ def _handle_resume(config_path: str, timestamp: str, export_formats: list[str]) 
         print(f"   搜尋路徑：{pattern}")
         return 1
 
-    # 2. 解析已完成的題目（per run）
-    completed: dict[str, set[str]] = {}  # run_file -> set of (file|question_id)
+    # 2. 解析已完成的題目（per run）：file|question_id -> 該題每個 sample 的結果紀錄。
+    #    samples_per_question > 1 時同一題會有多列，必須全部保留，否則回填時
+    #    只算到一個 sample，accuracy 與 pass@k 都會失真；IFEval / ASR 的附加指標
+    #    也需要原始欄位才能回填（見 Evaluator.evaluate_file）。
+    completed: dict[str, dict[str, list[dict[str, Any]]]] = {}
+    legacy_rows = 0  # 舊版結果檔沒有 file 欄位，無法比對來源檔案
     for result_file in existing_files:
         run_key = os.path.basename(result_file)
-        completed[run_key] = set()
+        completed[run_key] = {}
         try:
             with open(result_file, "r", encoding="utf-8") as f:
                 for line in f:
@@ -607,13 +630,23 @@ def _handle_resume(config_path: str, timestamp: str, export_formats: list[str]) 
                         continue
                     record = json.loads(line)
                     file_id = record.get("file", "")
+                    if not file_id:
+                        legacy_rows += 1
+                        continue
                     q_id = str(record.get("question_id", ""))
-                    completed[run_key].add(f"{file_id}|{q_id}")
+                    completed[run_key].setdefault(f"{file_id}|{q_id}", []).append(
+                        _resume_backfill_fields(record)
+                    )
         except Exception as e:
             print(f"⚠️  讀取 {result_file} 時發生錯誤：{e}")
 
     total_completed = sum(len(v) for v in completed.values())
-    print(f"📋 找到 {len(existing_files)} 個結果檔案，共 {total_completed} 筆已完成紀錄")
+    print(f"📋 找到 {len(existing_files)} 個結果檔案，共 {total_completed} 題已完成紀錄")
+    if legacy_rows:
+        print(
+            f"⚠️  有 {legacy_rows} 筆舊格式紀錄缺少 file 欄位，無法比對，"
+            f"相關題目將重新評測（可能產生重複結果列）"
+        )
 
     # 3. 正常載入 config 並執行評測，帶入 resume 資訊
     try:

@@ -56,10 +56,25 @@ class LLM(ABC):
 
 
 class Extractor(ABC):
-    """從 LLM 輸出中抽取原始答案字串的抽象基底類別。"""
+    """從 LLM 輸出中抽取原始答案字串的抽象基底類別。
+
+    Capability flags 決定 Evaluator 使用哪一條評測管線
+    （見 ``Evaluator._PIPELINES``），子類別覆寫對應旗標即可，
+    全部為 False 時走預設的文字解析管線。
+    """
 
     #: 若為 True，表示此 Extractor 使用 logprobs 而非生成文字；Evaluator 會走 logit 路徑
     uses_logprobs: bool = False
+    #: 若為 True，走 BFCL FC 路徑（原生 tool calls）
+    uses_tool_calls: bool = False
+    #: 若為 True，走 BFCL Prompting 路徑（system prompt 注入 function 定義）
+    uses_prompt_injection: bool = False
+    #: 若為 True，走 IFEval / IFBench instruction-following 路徑
+    uses_ifeval: bool = False
+    #: 若為 True，走 ASR 音檔路徑
+    uses_audio: bool = False
+    #: 若為 True，走 Vision 圖片路徑
+    uses_vision: bool = False
 
     def __init__(self, config: Optional[Dict[str, Any]] = None) -> None:
         self._config = config or {}

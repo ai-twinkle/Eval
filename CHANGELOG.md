@@ -5,6 +5,47 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+> ⚠️ **有 API 失敗的評測，分數會改變。** 失敗的題目（重試耗盡）現在計為答錯並計入分母，
+> 先前則是不計入分母而使分數偏高。IFEval 的 instruction-level 指標與 ASR 的 WER / CER
+> 同樣計入失敗題。
+>
+> ⚠️ **logprobs（`logit`）評測遇到端點不支援 echo / logprobs 時會改為報錯**：
+> 先前每題都回報 unparsed、整檔以 0% 正確率計入結果；現在視為 API 失敗，整檔拋出
+> `EvaluationError` 並排除在 `repeat_runs` 平均之外。
+
+### Changed
+- **evaluator 依 Extractor 的 capability flag 分派評測管線**：`evaluate_file()` 拆成七條
+  獨立的 `_run_*_pipeline()`，以 `Evaluator._PIPELINES` 資料驅動分派；統計與逐題紀錄
+  集中於 `_EvalAccumulator`。新增評測路徑時只需註冊，不需修改 `evaluate_file()`。
+  在沒有 API 失敗、沒有 `--resume` 的情況下，七條路徑送出的 prompt、JSONL 內容與 metrics
+  與先前相同（JSONL 多了 `file` 欄位）
+- JSONL 每列新增 `file` 欄位（來源資料集檔案路徑），作為 `--resume` 比對已完成題目的依據
+
+### Fixed
+- **單題 API 失敗不再毀掉整檔結果，也不再灌水分數**：失敗的 sample 計為答錯，
+  `failed_count` 寫入逐檔 metrics 與 `results_*.json`（`failed_count`、`total_failed_count`）。
+  失敗題不寫入 JSONL，`--resume` 會重新評測它們
+- **整檔 API 全部失敗時拋出 `EvaluationError`**，而不是回報 `accuracy = 0` 並被計入
+  `repeat_runs` 的平均
+- **logprobs 路徑任一選項失敗即整題視為失敗**：`score_continuation()` 出錯時回傳 `-inf`，
+  先前會在其餘選項中挑答案並照常計分
+- **`--resume` 先前從未跳過任何題目**：讀取已完成紀錄時比對的 `file` 欄位，evaluator 從未寫入。
+  現在已完成的題目會跳過，其結果回填進統計，summary 涵蓋整個資料集；回填涵蓋
+  `samples_per_question > 1` 的每個 sample，以及 IFEval（`prompt_loose`、`instruction_*`）與
+  ASR（WER / CER）的附加指標。缺少 `file` 欄位的舊版結果列無法比對，會提示並重新評測；
+  讀到紀錄卻沒有任何一筆對應到評測檔案時（例如資料集路徑寫法改變）也會提示
+- `scorer.score_full` 的 introspection 延遲到 IFEval 路徑首次使用時才進行
+- `shuffle_options` 只套用在選擇題路徑（logprobs / vision / text）
+
+### 注意
+- JSONL 仍在**整個檔案評測完成後**才寫入。若在檔案評測途中中斷（Ctrl-C、OOM、被搶佔），
+  該檔案已完成的題目不會留下紀錄，`--resume` 會從頭評測該檔案；question-level 續跑只涵蓋
+  已寫出的檔案與 API 失敗的題目
+- 以 `--resume` 續跑時，若剩下的題目全部 API 失敗，因已有回填的結果，不會拋出例外，
+  而是以失敗題計為答錯產生結果（`failed_count` 會反映）
+
 ## [2.10.0] - 2026-09-15
 
 > ⚠️ **視覺評測的分數會上升。** `mmbench`、`mmstar`、`mmmu`、`pope`、`vistw_mcq`
